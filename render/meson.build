@@ -18,6 +18,7 @@ lib_wlr_render = static_library(
 		'gles2/texture.c',
 		'gles2/util.c',
 		'wlr_renderer.c',
+		'wlr_swapchain.c',
 		'wlr_texture.c',
 	),
 	glapi,

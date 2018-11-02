@@ -10,7 +10,9 @@
 #define WLR_RENDER_WLR_RENDERER_H
 
 #include <stdint.h>
+#include <gbm.h>
 #include <wayland-server-protocol.h>
+
 #include <wlr/render/egl.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/types/wlr_box.h>
@@ -22,6 +24,7 @@ enum wlr_renderer_read_pixels_flags {
 struct wlr_renderer_impl;
 
 struct wlr_renderer {
+	struct gbm_device *gbm;
 	const struct wlr_renderer_impl *impl;
 
 	struct {
