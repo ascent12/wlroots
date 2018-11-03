@@ -1,13 +1,14 @@
 #ifndef RENDER_GLES2_H
 #define RENDER_GLES2_H
 
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <gbm.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <string.h>
 #include <wlr/backend.h>
 #include <wlr/render/egl.h>
 #include <wlr/render/gles2.h>
@@ -36,8 +37,11 @@ struct wlr_gles2_tex_shader {
 struct wlr_gles2_renderer {
 	struct wlr_renderer wlr_renderer;
 
+	struct gbm_device *gbm;
 	struct wlr_egl *egl;
-	const char *exts_str;
+
+	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC egl_image_target_texture;
+	PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC egl_image_target_renderbuffer;
 
 	struct {
 		struct {

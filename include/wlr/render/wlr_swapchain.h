@@ -24,6 +24,7 @@ struct wlr_image {
 
 struct wlr_swapchain {
 	struct wlr_renderer *renderer;
+	struct gbm_device *gbm;
 	uint32_t flags;
 
 	struct wlr_image images[3];

@@ -10,7 +10,6 @@
 #define WLR_RENDER_WLR_RENDERER_H
 
 #include <stdint.h>
-#include <gbm.h>
 #include <wayland-server-protocol.h>
 
 #include <wlr/render/egl.h>
@@ -24,7 +23,6 @@ enum wlr_renderer_read_pixels_flags {
 struct wlr_renderer_impl;
 
 struct wlr_renderer {
-	struct gbm_device *gbm;
 	const struct wlr_renderer_impl *impl;
 
 	struct {
@@ -34,6 +32,8 @@ struct wlr_renderer {
 
 struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl, EGLenum platform,
 	void *remote_display, EGLint *config_attribs, EGLint visual_id);
+
+struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r);
 
 void wlr_renderer_begin(struct wlr_renderer *r, int width, int height);
 void wlr_renderer_end(struct wlr_renderer *r);

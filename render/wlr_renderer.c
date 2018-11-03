@@ -38,6 +38,10 @@ void wlr_renderer_destroy(struct wlr_renderer *r) {
 	}
 }
 
+struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r) {
+	return r->impl->get_gbm(r);
+}
+
 void wlr_renderer_begin(struct wlr_renderer *r, int width, int height) {
 	r->impl->begin(r, width, height);
 }
@@ -189,6 +193,7 @@ void wlr_renderer_init_wl_display(struct wlr_renderer *r,
 struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl,
 		EGLenum platform, void *remote_display, EGLint *config_attribs,
 		EGLint visual_id) {
+#if 0
 	if (!wlr_egl_init(egl, platform, remote_display, config_attribs, visual_id)) {
 		wlr_log(WLR_ERROR, "Could not initialize EGL");
 		return NULL;
@@ -200,4 +205,6 @@ struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl,
 	}
 
 	return renderer;
+#endif
+	return NULL;
 }

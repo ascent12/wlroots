@@ -20,6 +20,7 @@ lib_wlr_render = static_library(
 		'wlr_renderer.c',
 		'wlr_swapchain.c',
 		'wlr_texture.c',
+		'hack.c',
 	),
 	glapi,
 	include_directories: wlr_inc,

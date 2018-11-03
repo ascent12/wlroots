@@ -26,7 +26,7 @@ struct wlr_gles2_texture *get_gles2_texture_in_context(
 		struct wlr_texture *wlr_texture) {
 	struct wlr_gles2_texture *texture = gles2_get_texture(wlr_texture);
 	if (!wlr_egl_is_current(texture->egl)) {
-		wlr_egl_make_current(texture->egl, EGL_NO_SURFACE, NULL);
+		wlr_egl_make_current(texture->egl);
 	}
 	return texture;
 }
@@ -81,6 +81,7 @@ static bool gles2_texture_write_pixels(struct wlr_texture *wlr_texture,
 
 static bool gles2_texture_to_dmabuf(struct wlr_texture *wlr_texture,
 		struct wlr_dmabuf_attributes *attribs) {
+#if 0
 	struct wlr_gles2_texture *texture = gles2_get_texture(wlr_texture);
 
 	if (!texture->image) {
@@ -105,6 +106,8 @@ static bool gles2_texture_to_dmabuf(struct wlr_texture *wlr_texture,
 
 	return wlr_egl_export_image_to_dmabuf(texture->egl, texture->image,
 		texture->width, texture->height, flags, attribs);
+#endif
+	return false;
 }
 
 static void gles2_texture_destroy(struct wlr_texture *wlr_texture) {
@@ -114,7 +117,7 @@ static void gles2_texture_destroy(struct wlr_texture *wlr_texture) {
 
 	struct wlr_gles2_texture *texture = gles2_get_texture(wlr_texture);
 
-	wlr_egl_make_current(texture->egl, EGL_NO_SURFACE, NULL);
+	wlr_egl_make_current(texture->egl);
 
 	PUSH_GLES2_DEBUG;
 
@@ -144,7 +147,7 @@ struct wlr_texture *wlr_gles2_texture_from_pixels(struct wlr_egl *egl,
 		enum wl_shm_format wl_fmt, uint32_t stride, uint32_t width,
 		uint32_t height, const void *data) {
 	if (!wlr_egl_is_current(egl)) {
-		wlr_egl_make_current(egl, EGL_NO_SURFACE, NULL);
+		wlr_egl_make_current(egl);
 	}
 
 	const struct wlr_gles2_pixel_format *fmt = get_gles2_format_from_wl(wl_fmt);
@@ -184,7 +187,7 @@ struct wlr_texture *wlr_gles2_texture_from_pixels(struct wlr_egl *egl,
 struct wlr_texture *wlr_gles2_texture_from_wl_drm(struct wlr_egl *egl,
 		struct wl_resource *data) {
 	if (!wlr_egl_is_current(egl)) {
-		wlr_egl_make_current(egl, EGL_NO_SURFACE, NULL);
+		wlr_egl_make_current(egl);
 	}
 
 	if (!glEGLImageTargetTexture2DOES) {
@@ -246,18 +249,20 @@ struct wlr_texture *wlr_gles2_texture_from_wl_drm(struct wlr_egl *egl,
 struct wlr_texture *wlr_gles2_texture_from_dmabuf(struct wlr_egl *egl,
 		struct wlr_dmabuf_attributes *attribs) {
 	if (!wlr_egl_is_current(egl)) {
-		wlr_egl_make_current(egl, EGL_NO_SURFACE, NULL);
+		wlr_egl_make_current(egl);
 	}
 
 	if (!glEGLImageTargetTexture2DOES) {
 		return NULL;
 	}
 
+#if 0
 	if (!egl->exts.image_dmabuf_import_ext) {
 		wlr_log(WLR_ERROR, "Cannot create DMA-BUF texture: EGL extension "
 			"unavailable");
 		return NULL;
 	}
+#endif
 
 	switch (attribs->format & ~DRM_FORMAT_BIG_ENDIAN) {
 	case WL_SHM_FORMAT_YUYV:

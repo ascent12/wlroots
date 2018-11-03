@@ -9,17 +9,25 @@
 #ifndef WLR_RENDER_INTERFACE_H
 #define WLR_RENDER_INTERFACE_H
 
+#include <stdbool.h>
+#include <gbm.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <stdbool.h>
 #include <wayland-server-protocol.h>
+
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/types/wlr_box.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/render/dmabuf.h>
+#include <wlr/render/wlr_swapchain.h>
 
 struct wlr_renderer_impl {
+	struct gbm_device *(*get_gbm)(struct wlr_renderer *renderer);
+
+	bool (*image_created)(struct wlr_renderer *renderer, struct wlr_image *image);
+	void (*image_destroyed)(struct wlr_image *image);
+
 	void (*begin)(struct wlr_renderer *renderer, uint32_t width,
 		uint32_t height);
 	void (*end)(struct wlr_renderer *renderer);

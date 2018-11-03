@@ -1,15 +1,17 @@
 #include <assert.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <gbm.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 #include <wayland-server-protocol.h>
 #include <wayland-util.h>
 #include <wlr/render/egl.h>
 #include <wlr/render/interface.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_matrix.h>
+#include <wlr/render/wlr_swapchain.h>
 #include <wlr/util/log.h>
 #include "glapi.h"
 #include "render/gles2.h"
@@ -166,7 +168,6 @@ static bool gles2_render_texture_with_matrix(struct wlr_renderer *wlr_renderer,
 	return true;
 }
 
-
 static void gles2_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 		const float color[static 4], const float matrix[static 9]) {
 	struct wlr_gles2_renderer *renderer =
@@ -237,6 +238,7 @@ static void gles2_wl_drm_buffer_get_size(struct wlr_renderer *wlr_renderer,
 	eglQueryWaylandBufferWL(renderer->egl->display, buffer, EGL_HEIGHT, height);
 }
 
+#if 0
 static int gles2_get_dmabuf_formats(struct wlr_renderer *wlr_renderer,
 		int **formats) {
 	struct wlr_gles2_renderer *renderer = gles2_get_renderer(wlr_renderer);
@@ -248,6 +250,7 @@ static int gles2_get_dmabuf_modifiers(struct wlr_renderer *wlr_renderer,
 	struct wlr_gles2_renderer *renderer = gles2_get_renderer(wlr_renderer);
 	return wlr_egl_get_dmabuf_modifiers(renderer->egl, format, modifiers);
 }
+#endif
 
 static bool gles2_read_pixels(struct wlr_renderer *wlr_renderer,
 		enum wl_shm_format wl_fmt, uint32_t *flags, uint32_t stride,
@@ -330,24 +333,26 @@ static void gles2_init_wl_display(struct wlr_renderer *wlr_renderer,
 }
 
 static void gles2_destroy(struct wlr_renderer *wlr_renderer) {
-	struct wlr_gles2_renderer *renderer = gles2_get_renderer(wlr_renderer);
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(wlr_renderer);
 
-	wlr_egl_make_current(renderer->egl, EGL_NO_SURFACE, NULL);
+	wlr_egl_make_current(gles->egl);
 
 	PUSH_GLES2_DEBUG;
-	glDeleteProgram(renderer->shaders.quad.program);
-	glDeleteProgram(renderer->shaders.ellipse.program);
-	glDeleteProgram(renderer->shaders.tex_rgba.program);
-	glDeleteProgram(renderer->shaders.tex_rgbx.program);
-	glDeleteProgram(renderer->shaders.tex_ext.program);
+	glDeleteProgram(gles->shaders.quad.program);
+	glDeleteProgram(gles->shaders.ellipse.program);
+	glDeleteProgram(gles->shaders.tex_rgba.program);
+	glDeleteProgram(gles->shaders.tex_rgbx.program);
+	glDeleteProgram(gles->shaders.tex_ext.program);
 	POP_GLES2_DEBUG;
 
+#if 0
 	if (glDebugMessageCallbackKHR) {
 		glDisable(GL_DEBUG_OUTPUT_KHR);
 		glDebugMessageCallbackKHR(NULL, NULL);
 	}
+#endif
 
-	free(renderer);
+	free(gles);
 }
 
 static const struct wlr_renderer_impl renderer_impl = {
@@ -362,8 +367,10 @@ static const struct wlr_renderer_impl renderer_impl = {
 	.formats = gles2_renderer_formats,
 	.resource_is_wl_drm_buffer = gles2_resource_is_wl_drm_buffer,
 	.wl_drm_buffer_get_size = gles2_wl_drm_buffer_get_size,
+#if 0
 	.get_dmabuf_formats = gles2_get_dmabuf_formats,
 	.get_dmabuf_modifiers = gles2_get_dmabuf_modifiers,
+#endif
 	.read_pixels = gles2_read_pixels,
 	.format_supported = gles2_format_supported,
 	.texture_from_pixels = gles2_texture_from_pixels,
@@ -389,6 +396,7 @@ void pop_gles2_marker(void) {
 	}
 }
 
+#if 0
 static enum wlr_log_importance gles2_log_importance_to_wlr(GLenum type) {
 	switch (type) {
 	case GL_DEBUG_TYPE_ERROR_KHR:               return WLR_ERROR;
@@ -408,6 +416,7 @@ static void gles2_log(GLenum src, GLenum type, GLuint id, GLenum severity,
 		GLsizei len, const GLchar *msg, const void *user) {
 	_wlr_log(gles2_log_importance_to_wlr(type), "[GLES2] %s", msg);
 }
+#endif
 
 static GLuint compile_shader(GLuint type, const GLchar *src) {
 	PUSH_GLES2_DEBUG;
@@ -474,26 +483,50 @@ extern const GLchar tex_fragment_src_rgba[];
 extern const GLchar tex_fragment_src_rgbx[];
 extern const GLchar tex_fragment_src_external[];
 
-struct wlr_renderer *wlr_gles2_renderer_create(struct wlr_egl *egl) {
-	if (!load_glapi()) {
+struct wlr_renderer *wlr_gles2_renderer_create(int fd) {
+	struct wlr_gles2_renderer *gles = calloc(1, sizeof(*gles));
+	if (!gles) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 
-	struct wlr_gles2_renderer *renderer =
-		calloc(1, sizeof(struct wlr_gles2_renderer));
-	if (renderer == NULL) {
+	gles->gbm = gbm_create_device(fd);
+	if (!gles->gbm) {
+		wlr_log_errno(WLR_ERROR, "Failed to create GBM device");
 		return NULL;
 	}
-	wlr_renderer_init(&renderer->wlr_renderer, &renderer_impl);
 
-	renderer->egl = egl;
-	wlr_egl_make_current(renderer->egl, EGL_NO_SURFACE, NULL);
+	gles->egl = wlr_egl_create(gles->gbm);
+	if (!gles->egl) {
+		return NULL;
+	}
 
-	renderer->exts_str = (const char*) glGetString(GL_EXTENSIONS);
+	wlr_egl_make_current(gles->egl);
+
+	const char *exts = (const char *)glGetString(GL_EXTENSIONS);
+
 	wlr_log(WLR_INFO, "Using %s", glGetString(GL_VERSION));
 	wlr_log(WLR_INFO, "GL vendor: %s", glGetString(GL_VENDOR));
-	wlr_log(WLR_INFO, "Supported GLES2 extensions: %s", renderer->exts_str);
+	wlr_log(WLR_INFO, "Supported GLES2 extensions: %s", exts);
 
+	if (!strstr(exts, "OES_surfaceless_context")) {
+		wlr_log(WLR_ERROR, "GLES does not support surfaceless contexts");
+		return NULL;
+	}
+
+	if (!strstr(exts, "OES_EGL_image_external")) {
+		wlr_log(WLR_ERROR, "GLES does not support EGL images");
+		return NULL;
+	}
+
+	gles->egl_image_target_texture =
+		(void *)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	gles->egl_image_target_renderbuffer =
+		(void *)eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
+
+	wlr_renderer_init(&gles->wlr_renderer, &renderer_impl);
+
+#if 0
 	if (glDebugMessageCallbackKHR && glDebugMessageControlKHR) {
 		glEnable(GL_DEBUG_OUTPUT_KHR);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
@@ -507,60 +540,98 @@ struct wlr_renderer *wlr_gles2_renderer_create(struct wlr_egl *egl) {
 	}
 
 	PUSH_GLES2_DEBUG;
+#endif
 
-	GLuint prog;
-	renderer->shaders.quad.program = prog =
-		link_program(quad_vertex_src, quad_fragment_src);
-	if (!renderer->shaders.quad.program) {
-		goto error;
-	}
-	renderer->shaders.quad.proj = glGetUniformLocation(prog, "proj");
-	renderer->shaders.quad.color = glGetUniformLocation(prog, "color");
+	struct uniform {
+		const char *name;
+		GLint *loc;
+	};
 
-	renderer->shaders.ellipse.program = prog =
-		link_program(quad_vertex_src, ellipse_fragment_src);
-	if (!renderer->shaders.ellipse.program) {
-		goto error;
-	}
-	renderer->shaders.ellipse.proj = glGetUniformLocation(prog, "proj");
-	renderer->shaders.ellipse.color = glGetUniformLocation(prog, "color");
+	struct {
+		GLuint *prog;
+		const char *vert_src;
+		const char *frag_src;
+		size_t num_uniforms;
+		struct uniform *uniforms;
+	} info[] = {
+		{
+			.prog = &gles->shaders.quad.program,
+			.vert_src = quad_vertex_src,
+			.frag_src = quad_fragment_src,
+			.num_uniforms = 2,
+			.uniforms = (struct uniform []) {
+				{ "proj", &gles->shaders.quad.proj },
+				{ "color", &gles->shaders.quad.color },
+			},
+		},
+		{
+			.prog = &gles->shaders.ellipse.program,
+			.vert_src = quad_vertex_src,
+			.frag_src = ellipse_fragment_src,
+			.num_uniforms = 2,
+			.uniforms = (struct uniform []) {
+				{ "proj", &gles->shaders.ellipse.proj },
+				{ "color", &gles->shaders.ellipse.color },
+			},
+		},
+		{
+			.prog = &gles->shaders.tex_rgba.program,
+			.vert_src = tex_vertex_src,
+			.frag_src = tex_fragment_src_rgba,
+			.num_uniforms = 4,
+			.uniforms = (struct uniform []) {
+				{ "proj", &gles->shaders.tex_rgba.proj },
+				{ "invert_y", &gles->shaders.tex_rgba.invert_y },
+				{ "tex", &gles->shaders.tex_rgba.tex },
+				{ "alpha", &gles->shaders.tex_rgba.alpha },
+			},
+		},
+		{
+			.prog = &gles->shaders.tex_rgbx.program,
+			.vert_src = tex_vertex_src,
+			.frag_src = tex_fragment_src_rgbx,
+			.num_uniforms = 4,
+			.uniforms = (struct uniform []) {
+				{ "proj", &gles->shaders.tex_rgbx.proj },
+				{ "invert_y", &gles->shaders.tex_rgbx.invert_y },
+				{ "tex", &gles->shaders.tex_rgbx.tex },
+				{ "alpha", &gles->shaders.tex_rgbx.alpha },
+			},
+		},
+		{
+			.prog = &gles->shaders.tex_ext.program,
+			.vert_src = tex_vertex_src,
+			.frag_src = tex_fragment_src_external,
+			.num_uniforms = 4,
+			.uniforms = (struct uniform []) {
+				{ "proj", &gles->shaders.tex_ext.proj },
+				{ "invert_y", &gles->shaders.tex_ext.invert_y },
+				{ "tex", &gles->shaders.tex_ext.tex },
+				{ "alpha", &gles->shaders.tex_ext.alpha },
+			},
+		},
+	};
 
-	renderer->shaders.tex_rgba.program = prog =
-		link_program(tex_vertex_src, tex_fragment_src_rgba);
-	if (!renderer->shaders.tex_rgba.program) {
-		goto error;
-	}
-	renderer->shaders.tex_rgba.proj = glGetUniformLocation(prog, "proj");
-	renderer->shaders.tex_rgba.invert_y = glGetUniformLocation(prog, "invert_y");
-	renderer->shaders.tex_rgba.tex = glGetUniformLocation(prog, "tex");
-	renderer->shaders.tex_rgba.alpha = glGetUniformLocation(prog, "alpha");
-
-	renderer->shaders.tex_rgbx.program = prog =
-		link_program(tex_vertex_src, tex_fragment_src_rgbx);
-	if (!renderer->shaders.tex_rgbx.program) {
-		goto error;
-	}
-	renderer->shaders.tex_rgbx.proj = glGetUniformLocation(prog, "proj");
-	renderer->shaders.tex_rgbx.invert_y = glGetUniformLocation(prog, "invert_y");
-	renderer->shaders.tex_rgbx.tex = glGetUniformLocation(prog, "tex");
-	renderer->shaders.tex_rgbx.alpha = glGetUniformLocation(prog, "alpha");
-
-	if (glEGLImageTargetTexture2DOES) {
-		renderer->shaders.tex_ext.program = prog =
-			link_program(tex_vertex_src, tex_fragment_src_external);
-		if (!renderer->shaders.tex_ext.program) {
-			goto error;
+	for (size_t i = 0; i < sizeof(info) / sizeof(info[0]); ++i) {
+		GLuint prog = link_program(info[i].vert_src, info[i].frag_src);
+		if (!prog) {
+			return NULL;
 		}
-		renderer->shaders.tex_ext.proj = glGetUniformLocation(prog, "proj");
-		renderer->shaders.tex_ext.invert_y = glGetUniformLocation(prog, "invert_y");
-		renderer->shaders.tex_ext.tex = glGetUniformLocation(prog, "tex");
-		renderer->shaders.tex_ext.alpha = glGetUniformLocation(prog, "alpha");
+
+		*info[i].prog = prog;
+
+		for (size_t j = 0; j < info[i].num_uniforms; ++j) {
+			struct uniform *u = &info[i].uniforms[j];
+			*u->loc = glGetUniformLocation(prog, u->name);
+		}
 	}
 
+#if 0
 	POP_GLES2_DEBUG;
+#endif
 
-	return &renderer->wlr_renderer;
-
+	return &gles->wlr_renderer;
+#if 0
 error:
 	glDeleteProgram(renderer->shaders.quad.program);
 	glDeleteProgram(renderer->shaders.ellipse.program);
@@ -577,4 +648,5 @@ error:
 
 	free(renderer);
 	return NULL;
+#endif
 }

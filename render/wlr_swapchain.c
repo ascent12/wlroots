@@ -30,13 +30,14 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
 	}
 
 	sc->renderer = renderer;
+	sc->gbm = wlr_renderer_get_gbm(renderer);
 	sc->flags = flags;
 
 	int i;
 	int len = flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
 	for (i = 0; i < len; ++i) {
 		sc->images[i].swapchain = sc;
-		sc->images[i].bo = bo_create(renderer->gbm, width, height, format,
+		sc->images[i].bo = bo_create(sc->gbm, width, height, format,
 			modifiers, num_modifiers, flags & WLR_SWAPCHAIN_USE_SCANOUT);
 		if (!sc->images[i].bo) {
 			wlr_log_errno(WLR_ERROR, "Failed to create buffer");
