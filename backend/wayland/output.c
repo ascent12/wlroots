@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <gbm.h>
 #include <wayland-client.h>
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/wlr_renderer.h>
@@ -26,9 +28,21 @@ static struct wl_callback_listener frame_listener;
 static void surface_frame_callback(void *data, struct wl_callback *cb,
 		uint32_t time) {
 	struct wlr_wl_output *output = data;
-	assert(output);
-	wl_callback_destroy(cb);
-	output->frame_callback = NULL;
+
+	if (output->scheduled) {
+		struct wlr_wl_buffer *buffer =
+			gbm_bo_get_user_data(output->scheduled);
+		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
+		wl_surface_damage_buffer(output->surface, 0, 0,
+			INT32_MAX, INT32_MAX);
+		output->scheduled = NULL;
+	}
+
+	wl_surface_commit(output->surface);
+
+	wl_callback_destroy(output->frame_callback);
+	output->frame_callback = wl_surface_frame(output->surface);
+	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
 
 	wlr_output_send_frame(&output->wlr_output);
 }
@@ -36,45 +50,6 @@ static void surface_frame_callback(void *data, struct wl_callback *cb,
 static struct wl_callback_listener frame_listener = {
 	.done = surface_frame_callback
 };
-
-static bool output_set_custom_mode(struct wlr_output *wlr_output,
-		int32_t width, int32_t height, int32_t refresh) {
-	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
-	wl_egl_window_resize(output->egl_window, width, height, 0, 0);
-	wlr_output_update_custom_mode(&output->wlr_output, width, height, 0);
-	return true;
-}
-
-static bool output_make_current(struct wlr_output *wlr_output,
-		int *buffer_age) {
-	struct wlr_wl_output *output =
-		get_wl_output_from_output(wlr_output);
-	return wlr_egl_make_current(&output->backend->egl, output->egl_surface,
-		buffer_age);
-}
-
-static bool output_swap_buffers(struct wlr_output *wlr_output,
-		pixman_region32_t *damage) {
-	struct wlr_wl_output *output =
-		get_wl_output_from_output(wlr_output);
-
-	if (output->frame_callback != NULL) {
-		wlr_log(WLR_ERROR, "Skipping buffer swap");
-		return false;
-	}
-
-	output->frame_callback = wl_surface_frame(output->surface);
-	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
-
-	if (!wlr_egl_swap_buffers(&output->backend->egl,
-			output->egl_surface, damage)) {
-		return false;
-	}
-
-	// TODO: if available, use the presentation-time protocol
-	wlr_output_send_present(wlr_output, NULL);
-	return true;
-}
 
 static void output_transform(struct wlr_output *wlr_output,
 		enum wl_output_transform transform) {
@@ -86,6 +61,7 @@ static bool output_set_cursor(struct wlr_output *wlr_output,
 		struct wlr_texture *texture, int32_t scale,
 		enum wl_output_transform transform,
 		int32_t hotspot_x, int32_t hotspot_y, bool update_texture) {
+#if 0
 	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
 	struct wlr_wl_backend *backend = output->backend;
 
@@ -155,6 +131,8 @@ static bool output_set_cursor(struct wlr_output *wlr_output,
 
 	update_wl_output_cursor(output);
 	return true;
+#endif
+	return false;
 }
 
 static void output_destroy(struct wlr_output *wlr_output) {
@@ -165,9 +143,6 @@ static void output_destroy(struct wlr_output *wlr_output) {
 
 	wl_list_remove(&output->link);
 
-	if (output->cursor.egl_window != NULL) {
-		wl_egl_window_destroy(output->cursor.egl_window);
-	}
 	if (output->cursor.surface) {
 		wl_surface_destroy(output->cursor.surface);
 	}
@@ -176,8 +151,6 @@ static void output_destroy(struct wlr_output *wlr_output) {
 		wl_callback_destroy(output->frame_callback);
 	}
 
-	wlr_egl_destroy_surface(&output->backend->egl, output->egl_surface);
-	wl_egl_window_destroy(output->egl_window);
 	zxdg_toplevel_v6_destroy(output->xdg_toplevel);
 	zxdg_surface_v6_destroy(output->xdg_surface);
 	wl_surface_destroy(output->surface);
@@ -197,26 +170,93 @@ static bool output_move_cursor(struct wlr_output *_output, int x, int y) {
 	return true;
 }
 
-static bool output_schedule_frame(struct wlr_output *wlr_output) {
+static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer) {
+	struct gbm_bo *bo = data;
+	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
+	struct wlr_wl_output *output = buffer->output;
+
+	struct wlr_output_event_release_buffer event = {
+		.bo = bo,
+		.userdata = buffer->userdata,
+	};
+
+	wl_signal_emit(&output->wlr_output.events.release_buffer, &event);
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+	.release = buffer_handle_release,
+};
+
+static void free_wl_buffer(struct gbm_bo *bo, void *data) {
+	struct wlr_wl_buffer *buffer = data;
+
+	wl_buffer_destroy(buffer->buffer);
+	free(buffer);
+}
+
+static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *bo,
+		void *userdata) {
 	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
 
-	if (output->frame_callback != NULL) {
-		wlr_log(WLR_ERROR, "Skipping frame scheduling");
+	if (output->scheduled) {
+		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
+		assert(buffer);
+
+		struct wlr_output_event_release_buffer event = {
+			.bo = output->scheduled,
+			.userdata = buffer->userdata,
+		};
+
+		output->scheduled = NULL;
+		wl_signal_emit(&wlr_output->events.release_buffer, &event);
+	}
+
+	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
+	if (buffer) {
+		buffer->userdata = userdata;
+		output->scheduled = bo;
 		return true;
 	}
 
-	output->frame_callback = wl_surface_frame(output->surface);
-	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
-	wl_surface_commit(output->surface);
+	buffer = calloc(1, sizeof(*buffer));
+	if (!buffer) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
+		return false;
+	}
+
+	struct zwp_linux_buffer_params_v1 *params =
+		zwp_linux_dmabuf_v1_create_params(output->backend->dmabuf);
+
+	int fd = gbm_bo_get_fd(bo);
+	uint64_t mod = gbm_bo_get_modifier(bo);
+
+	int n = gbm_bo_get_plane_count(bo);
+	for (int i = 0; i < n; ++i) {
+		zwp_linux_buffer_params_v1_add(params, fd, i,
+			gbm_bo_get_offset(bo, i),
+			gbm_bo_get_stride_for_plane(bo, i),
+			mod >> 32, mod & 0xffffffff);
+	}
+
+	buffer->output = output;
+	buffer->buffer = zwp_linux_buffer_params_v1_create_immed(params,
+		gbm_bo_get_width(bo), gbm_bo_get_height(bo),
+		gbm_bo_get_format(bo), 0);
+	buffer->userdata = userdata;
+	wl_buffer_add_listener(buffer->buffer, &buffer_listener, bo);
+
+	zwp_linux_buffer_params_v1_destroy(params);
+
+	gbm_bo_set_user_data(bo, buffer, free_wl_buffer);
+
+	output->scheduled = bo;
+
 	return true;
 }
 
 static const struct wlr_output_impl output_impl = {
-	.set_custom_mode = output_set_custom_mode,
 	.transform = output_transform,
 	.destroy = output_destroy,
-	.make_current = output_make_current,
-	.swap_buffers = output_swap_buffers,
 	.set_cursor = output_set_cursor,
 	.move_cursor = output_move_cursor,
 	.schedule_frame = output_schedule_frame,
@@ -249,8 +289,8 @@ static void xdg_toplevel_handle_configure(void *data,
 	if (width == 0 || height == 0) {
 		return;
 	}
+
 	// loop over states for maximized etc?
-	wl_egl_window_resize(output->egl_window, width, height, 0, 0);
 	wlr_output_update_custom_mode(&output->wlr_output, width, height, 0);
 }
 
@@ -259,7 +299,7 @@ static void xdg_toplevel_handle_close(void *data,
 	struct wlr_wl_output *output = data;
 	assert(output && output->xdg_toplevel == xdg_toplevel);
 
-	wlr_output_destroy((struct wlr_output *)output);
+	wlr_output_destroy(&output->wlr_output);
 }
 
 static struct zxdg_toplevel_v6_listener xdg_toplevel_listener = {
@@ -274,9 +314,9 @@ struct wlr_output *wlr_wl_output_create(struct wlr_backend *wlr_backend) {
 		return NULL;
 	}
 
-	struct wlr_wl_output *output;
-	if (!(output = calloc(sizeof(struct wlr_wl_output), 1))) {
-		wlr_log(WLR_ERROR, "Failed to allocate wlr_wl_output");
+	struct wlr_wl_output *output = calloc(1, sizeof(*output));
+	if (!output) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 	wlr_output_init(&output->wlr_output, &backend->backend, &output_impl,
@@ -322,30 +362,10 @@ struct wlr_output *wlr_wl_output_create(struct wlr_backend *wlr_backend) {
 			&xdg_toplevel_listener, output);
 	wl_surface_commit(output->surface);
 
-	output->egl_window = wl_egl_window_create(output->surface,
-			wlr_output->width, wlr_output->height);
-	output->egl_surface = wlr_egl_create_surface(&backend->egl,
-		output->egl_window);
-
 	wl_display_roundtrip(output->backend->remote_display);
-
-	// start rendering loop per callbacks by rendering first frame
-	if (!wlr_egl_make_current(&output->backend->egl, output->egl_surface,
-			NULL)) {
-		goto error;
-	}
-
-	wlr_renderer_begin(backend->renderer, wlr_output->width, wlr_output->height);
-	wlr_renderer_clear(backend->renderer, (float[]){ 1.0, 1.0, 1.0, 1.0 });
-	wlr_renderer_end(backend->renderer);
 
 	output->frame_callback = wl_surface_frame(output->surface);
 	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
-
-	if (!wlr_egl_swap_buffers(&output->backend->egl, output->egl_surface,
-			NULL)) {
-		goto error;
-	}
 
 	wl_list_insert(&backend->outputs, &output->link);
 	wlr_output_update_enabled(wlr_output, true);

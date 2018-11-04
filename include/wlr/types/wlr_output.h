@@ -90,6 +90,7 @@ struct wlr_output {
 	struct {
 		// Request to render a frame
 		struct wl_signal frame;
+		struct wl_signal release_buffer;
 		// Emitted when buffers need to be swapped (because software cursors or
 		// fullscreen damage or because of backend-specific logic)
 		struct wl_signal needs_swap;
@@ -121,6 +122,11 @@ struct wlr_output {
 	struct wl_listener display_destroy;
 
 	void *data;
+};
+
+struct wlr_output_event_release_buffer {
+	struct gbm_bo *bo;
+	void *userdata;
 };
 
 struct wlr_output_event_swap_buffers {

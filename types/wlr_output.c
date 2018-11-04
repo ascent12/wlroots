@@ -264,6 +264,7 @@ void wlr_output_init(struct wlr_output *output, struct wlr_backend *backend,
 	wl_list_init(&output->cursors);
 	wl_list_init(&output->resources);
 	wl_signal_init(&output->events.frame);
+	wl_signal_init(&output->events.release_buffer);
 	wl_signal_init(&output->events.needs_swap);
 	wl_signal_init(&output->events.swap_buffers);
 	wl_signal_init(&output->events.present);
@@ -542,6 +543,7 @@ void wlr_output_send_frame(struct wlr_output *output) {
 	wlr_signal_emit_safe(&output->events.frame, output);
 }
 
+#if 0
 static void schedule_frame_handle_idle_timer(void *data) {
 	struct wlr_output *output = data;
 	output->idle_frame = NULL;
@@ -552,8 +554,10 @@ static void schedule_frame_handle_idle_timer(void *data) {
 		}
 	}
 }
+#endif
 
 void wlr_output_schedule_frame(struct wlr_output *output) {
+#if 0
 	if (output->frame_pending || output->idle_frame != NULL) {
 		return;
 	}
@@ -563,6 +567,7 @@ void wlr_output_schedule_frame(struct wlr_output *output) {
 	struct wl_event_loop *ev = wl_display_get_event_loop(output->display);
 	output->idle_frame =
 		wl_event_loop_add_idle(ev, schedule_frame_handle_idle_timer, output);
+#endif
 }
 
 void wlr_output_send_present(struct wlr_output *output,

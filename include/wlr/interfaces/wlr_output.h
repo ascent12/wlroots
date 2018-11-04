@@ -10,6 +10,7 @@
 #define WLR_INTERFACES_WLR_OUTPUT_H
 
 #include <stdbool.h>
+#include <gbm.h>
 #include <wlr/backend.h>
 #include <wlr/types/wlr_box.h>
 #include <wlr/types/wlr_output.h>
@@ -33,7 +34,8 @@ struct wlr_output_impl {
 	size_t (*get_gamma_size)(struct wlr_output *output);
 	bool (*export_dmabuf)(struct wlr_output *output,
 		struct wlr_dmabuf_attributes *attribs);
-	bool (*schedule_frame)(struct wlr_output *output);
+	bool (*schedule_frame)(struct wlr_output *output, struct gbm_bo *bo,
+		void *data);
 };
 
 void wlr_output_init(struct wlr_output *output, struct wlr_backend *backend,

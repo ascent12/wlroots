@@ -79,7 +79,7 @@ endif
 subdir('protocol')
 subdir('render')
 
-#subdir('backend')
+subdir('backend')
 subdir('types')
 subdir('util')
 subdir('xcursor')
@@ -89,7 +89,7 @@ subdir('include')
 
 wlr_parts += [
 	lib_wl_protos,
-	#lib_wlr_backend,
+	lib_wlr_backend,
 	lib_wlr_render,
 	lib_wlr_types,
 	lib_wlr_util,

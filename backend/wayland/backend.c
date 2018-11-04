@@ -96,16 +96,11 @@ static void backend_destroy(struct wlr_backend *wlr_backend) {
 	if (backend->remote_display_src) {
 		wl_event_source_remove(backend->remote_display_src);
 	}
-	wlr_renderer_destroy(backend->renderer);
-	wlr_egl_finish(&backend->egl);
 	if (backend->pointer) {
 		wl_pointer_destroy(backend->pointer);
 	}
 	if (backend->seat) {
 		wl_seat_destroy(backend->seat);
-	}
-	if (backend->shm) {
-		wl_shm_destroy(backend->shm);
 	}
 	if (backend->shell) {
 		zxdg_shell_v6_destroy(backend->shell);
@@ -122,16 +117,9 @@ static void backend_destroy(struct wlr_backend *wlr_backend) {
 	free(backend);
 }
 
-static struct wlr_renderer *backend_get_renderer(
-		struct wlr_backend *wlr_backend) {
-	struct wlr_wl_backend *backend = get_wl_backend_from_backend(wlr_backend);
-	return backend->renderer;
-}
-
 static struct wlr_backend_impl backend_impl = {
 	.start = backend_start,
 	.destroy = backend_destroy,
-	.get_renderer = backend_get_renderer,
 };
 
 bool wlr_backend_is_wl(struct wlr_backend *b) {
@@ -144,21 +132,19 @@ static void handle_display_destroy(struct wl_listener *listener, void *data) {
 	backend_destroy(&backend->backend);
 }
 
-struct wlr_backend *wlr_wl_backend_create(struct wl_display *display,
-		const char *remote, wlr_renderer_create_func_t create_renderer_func) {
+struct wlr_backend *wlr_wl_backend_create(struct wl_display *display, const char *remote) {
 	wlr_log(WLR_INFO, "Creating wayland backend");
 
-	struct wlr_wl_backend *backend = calloc(1, sizeof(struct wlr_wl_backend));
+	struct wlr_wl_backend *backend = calloc(1, sizeof(*backend));
 	if (!backend) {
-		wlr_log(WLR_ERROR, "Allocation failed: %s", strerror(errno));
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 	wlr_backend_init(&backend->backend, &backend_impl);
 
+	backend->local_display = display;
 	wl_list_init(&backend->devices);
 	wl_list_init(&backend->outputs);
-
-	backend->local_display = display;
 
 	backend->remote_display = wl_display_connect(remote);
 	if (!backend->remote_display) {
@@ -172,34 +158,11 @@ struct wlr_backend *wlr_wl_backend_create(struct wl_display *display,
 		goto error_registry;
 	}
 
-	static EGLint config_attribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RED_SIZE, 1,
-		EGL_GREEN_SIZE, 1,
-		EGL_BLUE_SIZE, 1,
-		EGL_ALPHA_SIZE, 1,
-		EGL_NONE,
-	};
-
-	if (!create_renderer_func) {
-		create_renderer_func = wlr_renderer_autocreate;
-	}
-
-	backend->renderer = create_renderer_func(&backend->egl, EGL_PLATFORM_WAYLAND_EXT,
-		backend->remote_display, config_attribs, WL_SHM_FORMAT_ARGB8888);
-
-	if (backend->renderer == NULL) {
-		wlr_log(WLR_ERROR, "Could not create renderer");
-		goto error_renderer;
-	}
-
 	backend->local_display_destroy.notify = handle_display_destroy;
 	wl_display_add_destroy_listener(display, &backend->local_display_destroy);
 
 	return &backend->backend;
 
-error_renderer:
-	wl_registry_destroy(backend->registry);
 error_registry:
 	wl_display_disconnect(backend->remote_display);
 error_connect:

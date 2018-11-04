@@ -7,11 +7,15 @@
 
 struct wlr_renderer;
 struct wlr_backend;
+struct wlr_backend_impl;
 
 struct wlr_renderer *wlr_backend_get_renderer(struct wlr_backend *b) {
 	return NULL;
 }
 
 clockid_t wlr_backend_get_presentation_clock(struct wlr_backend *b) {
-	return CLOCK_MONOTONIC;
+	return 0;
+}
+
+void wlr_backend_init(struct wlr_backend *b, const struct wlr_backend_impl *i) {
 }
