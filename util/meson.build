@@ -6,7 +6,8 @@ lib_wlr_util = static_library(
 		'region.c',
 		'shm.c',
 		'signal.c',
+		'wlr_format_set.c',
 	),
 	include_directories: wlr_inc,
-	dependencies: [wayland_server, pixman, rt],
+	dependencies: [wayland_server, pixman, rt, drm],
 )
