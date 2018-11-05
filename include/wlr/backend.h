@@ -9,11 +9,20 @@
 #ifndef WLR_BACKEND_H
 #define WLR_BACKEND_H
 
+// Needed for clockid_t
+#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 199309L
+#  undef _POSIX_C_SOURCE
+#  define _POSIX_C_SOURCE 199309L
+#endif
+
+#include <stdbool.h>
+#include <time.h>
+
 #include <wayland-server.h>
-#include <wlr/backend/session.h>
-#include <wlr/render/egl.h>
 
 struct wlr_backend_impl;
+struct wlr_format_set;
+struct wlr_session;
 
 struct wlr_backend {
 	const struct wlr_backend_impl *impl;
@@ -28,8 +37,6 @@ struct wlr_backend {
 	} events;
 };
 
-typedef struct wlr_renderer *(*wlr_renderer_create_func_t)(struct wlr_egl *egl, EGLenum platform,
-	void *remote_display, EGLint *config_attribs, EGLint visual_id);
 /**
  * Automatically initializes the most suitable backend given the environment.
  * Will always return a multibackend. The backend is created but not started.
@@ -40,28 +47,40 @@ typedef struct wlr_renderer *(*wlr_renderer_create_func_t)(struct wlr_egl *egl, 
  * return a valid wlr_renderer, or NULL if it has failed to initiaze it.
  * Pass NULL as create_renderer_func to use the backend's default renderer.
  */
-struct wlr_backend *wlr_backend_autocreate(struct wl_display *display,
-	wlr_renderer_create_func_t create_renderer_func);
+struct wlr_backend *wlr_backend_autocreate(struct wl_display *display);
+
 /**
  * Start the backend. This may signal new_input or new_output immediately, but
  * may also wait until the display's event loop begins. Returns false on
  * failure.
  */
 bool wlr_backend_start(struct wlr_backend *backend);
+
 /**
  * Destroy the backend and clean up all of its resources. Normally called
  * automatically when the wl_display is destroyed.
  */
 void wlr_backend_destroy(struct wlr_backend *backend);
-/**
- * Obtains the wlr_renderer reference this backend is using.
- */
+
+struct wlr_renderer;
 struct wlr_renderer *wlr_backend_get_renderer(struct wlr_backend *backend);
+
+/**
+ * Obtains a file descriptor referring to a render node.
+ * This file descriptor is suitable for creating a wlr_renderer with.
+ * The backend retains ownership of the file descriptor, so you should
+ * not close it.
+ */
+int wlr_backend_get_render_fd(struct wlr_backend *backend);
+
+struct wlr_format_set *wlr_backend_get_formats(struct wlr_backend *backend);
+
 /**
  * Obtains the wlr_session reference from this backend if there is any.
  * Might return NULL for backends that don't use a session.
  */
 struct wlr_session *wlr_backend_get_session(struct wlr_backend *backend);
+
 /**
  * Returns the clock used by the backend for presentation feedback.
  */

@@ -1,10 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
+
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <tgmath.h>
 #include <time.h>
+
 #include <wayland-server.h>
+
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_box.h>
@@ -14,6 +17,7 @@
 #include <wlr/types/wlr_surface.h>
 #include <wlr/util/log.h>
 #include <wlr/util/region.h>
+
 #include "util/signal.h"
 
 #define OUTPUT_VERSION 3
@@ -251,7 +255,7 @@ static void handle_display_destroy(struct wl_listener *listener, void *data) {
 
 void wlr_output_init(struct wlr_output *output, struct wlr_backend *backend,
 		const struct wlr_output_impl *impl, struct wl_display *display) {
-	assert(impl->make_current && impl->swap_buffers && impl->transform);
+	//assert(impl->make_current && impl->swap_buffers && impl->transform);
 	if (impl->set_cursor || impl->move_cursor) {
 		assert(impl->set_cursor && impl->move_cursor);
 	}
@@ -568,6 +572,11 @@ void wlr_output_schedule_frame(struct wlr_output *output) {
 	output->idle_frame =
 		wl_event_loop_add_idle(ev, schedule_frame_handle_idle_timer, output);
 #endif
+}
+
+void wlr_output_schedule_frame2(struct wlr_output *output, struct gbm_bo *bo,
+		void *userdata) {
+	output->impl->schedule_frame(output, bo, userdata);
 }
 
 void wlr_output_send_present(struct wlr_output *output,

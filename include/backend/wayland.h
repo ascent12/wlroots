@@ -56,6 +56,8 @@ struct wlr_wl_output {
 	struct zxdg_surface_v6 *xdg_surface;
 	struct zxdg_toplevel_v6 *xdg_toplevel;
 
+	struct gbm_bo *scheduled;
+
 	uint32_t enter_serial;
 
 	struct {

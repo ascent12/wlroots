@@ -217,6 +217,9 @@ bool wlr_output_swap_buffers(struct wlr_output *output, struct timespec *when,
  * it is a no-op.
  */
 void wlr_output_schedule_frame(struct wlr_output *output);
+
+void wlr_output_schedule_frame2(struct wlr_output *output, struct gbm_bo *bo,
+	void *userdata);
 /**
  * Returns the maximum length of each gamma ramp, or 0 if unsupported.
  */

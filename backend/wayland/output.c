@@ -34,8 +34,22 @@ static void surface_frame_callback(void *data, struct wl_callback *cb,
 	struct wlr_wl_output *output = data;
 
 	wl_callback_destroy(output->frame_callback);
-	output->frame_callback = wl_surface_frame(output->surface);
-	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
+
+	if (output->scheduled) {
+		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
+		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
+		//wl_surface_damage_buffer(output->surface, 0, 0,
+		//	INT32_MAX, INT32_MAX);
+		wl_surface_commit(output->surface);
+
+		output->frame_callback = wl_surface_frame(output->surface);
+		wl_callback_add_listener(output->frame_callback, &frame_listener, output);
+
+		output->scheduled = NULL;
+		wlr_log(WLR_DEBUG, "Committed");
+	} else {
+		output->frame_callback = NULL;
+	}
 
 	wlr_output_send_frame(&output->wlr_output);
 }
@@ -191,48 +205,68 @@ static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *
 		void *userdata) {
 	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
 
+	if (output->scheduled) {
+		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
+		struct wlr_output_event_release_buffer event = {
+			.bo = output->scheduled,
+			.userdata = buffer->userdata,
+		};
+
+		wl_signal_emit(&output->wlr_output.events.release_buffer, &event);
+		output->scheduled = NULL;
+	}
+
 	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
-	if (buffer) {
-		buffer->userdata = userdata;
-		return true;
-	}
-
-	buffer = calloc(1, sizeof(*buffer));
 	if (!buffer) {
-		wlr_log_errno(WLR_ERROR, "Allocation failed");
-		return false;
+		buffer = calloc(1, sizeof(*buffer));
+		if (!buffer) {
+			wlr_log_errno(WLR_ERROR, "Allocation failed");
+			output->scheduled = bo;
+			return false;
+		}
+
+		struct zwp_linux_buffer_params_v1 *params =
+			zwp_linux_dmabuf_v1_create_params(output->backend->dmabuf);
+
+		int fd = gbm_bo_get_fd(bo);
+		uint64_t mod = gbm_bo_get_modifier(bo);
+
+		int n = gbm_bo_get_plane_count(bo);
+		for (int i = 0; i < n; ++i) {
+			zwp_linux_buffer_params_v1_add(params, fd, i,
+				gbm_bo_get_offset(bo, i),
+				gbm_bo_get_stride_for_plane(bo, i),
+				mod >> 32, mod & 0xffffffff);
+		}
+
+		buffer->output = output;
+		buffer->buffer = zwp_linux_buffer_params_v1_create_immed(params,
+			gbm_bo_get_width(bo), gbm_bo_get_height(bo),
+			gbm_bo_get_format(bo), 0);
+		buffer->userdata = userdata;
+		wl_buffer_add_listener(buffer->buffer, &buffer_listener, bo);
+
+		zwp_linux_buffer_params_v1_destroy(params);
+
+		gbm_bo_set_user_data(bo, buffer, free_wl_buffer);
+	} else {
+		buffer->userdata = userdata;
 	}
 
-	struct zwp_linux_buffer_params_v1 *params =
-		zwp_linux_dmabuf_v1_create_params(output->backend->dmabuf);
+	if (!output->frame_callback) {
+		output->frame_callback = wl_surface_frame(output->surface);
+		wl_callback_add_listener(output->frame_callback, &frame_listener,
+			output);
 
-	int fd = gbm_bo_get_fd(bo);
-	uint64_t mod = gbm_bo_get_modifier(bo);
+		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
+		//wl_surface_damage_buffer(output->surface, 0, 0,
+		//	INT32_MAX, INT32_MAX);
+		wl_surface_commit(output->surface);
 
-	int n = gbm_bo_get_plane_count(bo);
-	for (int i = 0; i < n; ++i) {
-		zwp_linux_buffer_params_v1_add(params, fd, i,
-			gbm_bo_get_offset(bo, i),
-			gbm_bo_get_stride_for_plane(bo, i),
-			mod >> 32, mod & 0xffffffff);
+		wlr_log(WLR_DEBUG, "Committed");
+	} else {
+		output->scheduled = bo;
 	}
-
-	buffer->output = output;
-	buffer->buffer = zwp_linux_buffer_params_v1_create_immed(params,
-		gbm_bo_get_width(bo), gbm_bo_get_height(bo),
-		gbm_bo_get_format(bo), 0);
-	buffer->userdata = userdata;
-	wl_buffer_add_listener(buffer->buffer, &buffer_listener, bo);
-
-	zwp_linux_buffer_params_v1_destroy(params);
-
-	gbm_bo_set_user_data(bo, buffer, free_wl_buffer);
-
-	wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-	wl_surface_damage_buffer(output->surface, 0, 0,
-		INT32_MAX, INT32_MAX);
-
-	wl_surface_commit(output->surface);
 
 	return true;
 }
@@ -347,8 +381,8 @@ struct wlr_output *wlr_wl_output_create(struct wlr_backend *wlr_backend) {
 
 	wl_display_roundtrip(output->backend->remote_display);
 
-	output->frame_callback = wl_surface_frame(output->surface);
-	wl_callback_add_listener(output->frame_callback, &frame_listener, output);
+	//output->frame_callback = wl_surface_frame(output->surface);
+	//wl_callback_add_listener(output->frame_callback, &frame_listener, output);
 
 	wl_list_insert(&backend->outputs, &output->link);
 	wlr_output_update_enabled(wlr_output, true);

@@ -155,7 +155,7 @@ summary = [
 ]
 message('\n'.join(summary))
 
-#subdir('examples')
+subdir('examples')
 #subdir('rootston')
 
 pkgconfig = import('pkgconfig')

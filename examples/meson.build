@@ -29,6 +29,8 @@ examples = {
 		'src': 'simple.c',
 		'dep': [wlroots],
 	},
+}
+comment = '''
 	'pointer': {
 		'src': 'pointer.c',
 		'dep': [wlroots],
@@ -111,6 +113,7 @@ examples = {
 	    'dep': [wayland_cursor, wayland_client, wlr_protos, wlroots],
     },
 }
+'''
 
 foreach name, info : examples
 	all_dep_found = true

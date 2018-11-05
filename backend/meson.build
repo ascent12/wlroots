@@ -1,6 +1,6 @@
 backend_parts = []
 backend_files = files(
-	#'backend.c',
+	'backend.c',
 	#'drm/atomic.c',
 	#'drm/backend.c',
 	#'drm/drm.c',

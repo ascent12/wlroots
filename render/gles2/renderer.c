@@ -355,7 +355,13 @@ static void gles2_destroy(struct wlr_renderer *wlr_renderer) {
 	free(gles);
 }
 
+struct gbm_device *gles2_get_gbm(struct wlr_renderer *renderer) {
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
+	return gles->gbm;
+}
+
 static const struct wlr_renderer_impl renderer_impl = {
+	.get_gbm = gles2_get_gbm,
 	.destroy = gles2_destroy,
 	.begin = gles2_begin,
 	.end = gles2_end,

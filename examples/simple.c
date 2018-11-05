@@ -1,22 +1,34 @@
 #define _POSIX_C_SOURCE 200112L
-#include <GLES2/gl2.h>
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include <GLES2/gl2.h>
 #include <wayland-server.h>
+#include <xkbcommon/xkbcommon.h>
+
 #include <wlr/backend.h>
 #include <wlr/backend/session.h>
-#include <wlr/types/wlr_output.h>
+#include <wlr/backend/wayland.h>
+#include <wlr/render/wlr_swapchain.h>
+#include <wlr/render/wlr_renderer.h>
+#include <wlr/render/gles2.h>
 #include <wlr/types/wlr_input_device.h>
+#include <wlr/types/wlr_output.h>
 #include <wlr/util/log.h>
-#include <xkbcommon/xkbcommon.h>
+#include <wlr/util/wlr_format_set.h>
 
 struct sample_state {
 	struct wl_display *display;
+	struct wlr_renderer *renderer;
+	struct wlr_format *format;
+
 	struct wl_listener new_output;
 	struct wl_listener new_input;
+
 	struct timespec last_frame;
 	float color[3];
 	int dec;
@@ -25,7 +37,10 @@ struct sample_state {
 struct sample_output {
 	struct sample_state *sample;
 	struct wlr_output *output;
+	struct wlr_swapchain *swapchain;
+
 	struct wl_listener frame;
+	struct wl_listener release_buffer;
 	struct wl_listener destroy;
 };
 
@@ -36,10 +51,19 @@ struct sample_keyboard {
 	struct wl_listener destroy;
 };
 
-void output_frame_notify(struct wl_listener *listener, void *data) {
-	struct sample_output *sample_output =
-		wl_container_of(listener, sample_output, frame);
-	struct sample_state *sample = sample_output->sample;
+static void output_frame_notify(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "Frame");
+
+	struct sample_output *output =
+		wl_container_of(listener, output, frame);
+
+	struct wlr_image *img = wlr_swapchain_aquire(output->swapchain);
+	if (!img)
+		return;
+	wlr_output_schedule_frame2(output->output, img->bo, img);
+
+#if 0
+
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
@@ -63,9 +87,20 @@ void output_frame_notify(struct wl_listener *listener, void *data) {
 
 	wlr_output_swap_buffers(sample_output->output, NULL, NULL);
 	sample->last_frame = now;
+#endif
 }
 
-void output_remove_notify(struct wl_listener *listener, void *data) {
+static void output_release_buffer(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "Release");
+
+	struct sample_output *output =
+		wl_container_of(listener, output, release_buffer);
+
+	struct wlr_output_event_release_buffer *event = data;
+	wlr_swapchain_release(output->swapchain, event->userdata);
+}
+
+static void output_remove_notify(struct wl_listener *listener, void *data) {
 	struct sample_output *sample_output =
 		wl_container_of(listener, sample_output, destroy);
 	wlr_log(WLR_DEBUG, "Output removed");
@@ -74,12 +109,13 @@ void output_remove_notify(struct wl_listener *listener, void *data) {
 	free(sample_output);
 }
 
-void new_output_notify(struct wl_listener *listener, void *data) {
+static void new_output_notify(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "New output");
+
 	struct wlr_output *output = data;
 	struct sample_state *sample =
 		wl_container_of(listener, sample, new_output);
-	struct sample_output *sample_output =
-		calloc(1, sizeof(struct sample_output));
+	struct sample_output *sample_output = calloc(1, sizeof(*sample_output));
 	if (!wl_list_empty(&output->modes)) {
 		struct wlr_output_mode *mode =
 			wl_container_of(output->modes.prev, mode, link);
@@ -87,13 +123,25 @@ void new_output_notify(struct wl_listener *listener, void *data) {
 	}
 	sample_output->output = output;
 	sample_output->sample = sample;
+
+	struct wlr_format *fmt = sample->format;
+	sample_output->swapchain = wlr_swapchain_create(sample->renderer, 1280, 720,
+		fmt->format, fmt->len ? fmt->modifiers : NULL, fmt->len, 0);
+
 	wl_signal_add(&output->events.frame, &sample_output->frame);
 	sample_output->frame.notify = output_frame_notify;
+
+	wl_signal_add(&output->events.release_buffer, &sample_output->release_buffer);
+	sample_output->release_buffer.notify = output_release_buffer;
+
 	wl_signal_add(&output->events.destroy, &sample_output->destroy);
 	sample_output->destroy.notify = output_remove_notify;
+
+	struct wlr_image *img = wlr_swapchain_aquire(sample_output->swapchain);
+	wlr_output_schedule_frame2(output, img->bo, img);
 }
 
-void keyboard_key_notify(struct wl_listener *listener, void *data) {
+static void keyboard_key_notify(struct wl_listener *listener, void *data) {
 	struct sample_keyboard *keyboard = wl_container_of(listener, keyboard, key);
 	struct sample_state *sample = keyboard->sample;
 	struct wlr_event_keyboard_key *event = data;
@@ -109,7 +157,7 @@ void keyboard_key_notify(struct wl_listener *listener, void *data) {
 	}
 }
 
-void keyboard_destroy_notify(struct wl_listener *listener, void *data) {
+static void keyboard_destroy_notify(struct wl_listener *listener, void *data) {
 	struct sample_keyboard *keyboard =
 		wl_container_of(listener, keyboard, destroy);
 	wl_list_remove(&keyboard->destroy.link);
@@ -117,25 +165,28 @@ void keyboard_destroy_notify(struct wl_listener *listener, void *data) {
 	free(keyboard);
 }
 
-void new_input_notify(struct wl_listener *listener, void *data) {
+static void new_input_notify(struct wl_listener *listener, void *data) {
 	struct wlr_input_device *device = data;
 	struct sample_state *sample = wl_container_of(listener, sample, new_input);
+
 	switch (device->type) {
-	case WLR_INPUT_DEVICE_KEYBOARD:;
-		struct sample_keyboard *keyboard =
-			calloc(1, sizeof(struct sample_keyboard));
+	case WLR_INPUT_DEVICE_KEYBOARD: {
+		struct sample_keyboard *keyboard = calloc(1, sizeof(*keyboard));
 		keyboard->device = device;
 		keyboard->sample = sample;
 		wl_signal_add(&device->events.destroy, &keyboard->destroy);
 		keyboard->destroy.notify = keyboard_destroy_notify;
 		wl_signal_add(&device->keyboard->events.key, &keyboard->key);
 		keyboard->key.notify = keyboard_key_notify;
-		struct xkb_rule_names rules = { 0 };
-		rules.rules = getenv("XKB_DEFAULT_RULES");
-		rules.model = getenv("XKB_DEFAULT_MODEL");
-		rules.layout = getenv("XKB_DEFAULT_LAYOUT");
-		rules.variant = getenv("XKB_DEFAULT_VARIANT");
-		rules.options = getenv("XKB_DEFAULT_OPTIONS");
+
+		struct xkb_rule_names rules = {
+			.rules = getenv("XKB_DEFAULT_RULES"),
+			.model = getenv("XKB_DEFAULT_MODEL"),
+			.layout = getenv("XKB_DEFAULT_LAYOUT"),
+			.variant = getenv("XKB_DEFAULT_VARIANT"),
+			.options = getenv("XKB_DEFAULT_OPTIONS"),
+		};
+
 		struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 		if (!context) {
 			wlr_log(WLR_ERROR, "Failed to create XKB context");
@@ -151,6 +202,7 @@ void new_input_notify(struct wl_listener *listener, void *data) {
 		xkb_keymap_unref(keymap);
 		xkb_context_unref(context);
 		break;
+	}
 	default:
 		break;
 	}
@@ -165,20 +217,28 @@ int main(void) {
 		.last_frame = { 0 },
 		.display = display
 	};
-	struct wlr_backend *backend = wlr_backend_autocreate(display, NULL);
+
+	struct wlr_backend *backend = wlr_wl_backend_create(display, NULL);
 	if (!backend) {
-		exit(1);
+		return 1;
 	}
+
 	wl_signal_add(&backend->events.new_output, &state.new_output);
 	state.new_output.notify = new_output_notify;
 	wl_signal_add(&backend->events.new_input, &state.new_input);
 	state.new_input.notify = new_input_notify;
+
+	wlr_wl_output_create(backend);
+
 	clock_gettime(CLOCK_MONOTONIC, &state.last_frame);
+
+	state.renderer = wlr_gles2_renderer_create(wlr_backend_get_render_fd(backend));
+	state.format = wlr_backend_get_formats(backend)->formats[0];
 
 	if (!wlr_backend_start(backend)) {
 		wlr_log(WLR_ERROR, "Failed to start backend");
 		wlr_backend_destroy(backend);
-		exit(1);
+		return 1;
 	}
 	wl_display_run(display);
 	wl_display_destroy(display);

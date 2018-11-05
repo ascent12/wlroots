@@ -1,6 +1,10 @@
 #ifndef WLR_UTIL_WLR_FORMAT_SET_H
 #define WLR_UTIL_WLR_FORMAT_SET_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 struct wlr_format {
 	uint32_t format;
 	size_t cap;

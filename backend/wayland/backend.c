@@ -28,18 +28,14 @@ struct wlr_wl_backend *get_wl_backend_from_backend(
 
 static int dispatch_events(int fd, uint32_t mask, void *data) {
 	struct wlr_wl_backend *wl = data;
-	int count = 0;
 
 	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
 		wl_display_terminate(wl->local_display);
-	} else if (mask & WL_EVENT_READABLE) {
-		count = wl_display_dispatch(wl->remote_display);
 	} else {
-		count = wl_display_dispatch_pending(wl->remote_display);
-		wl_display_flush(wl->remote_display);
+		wl_display_dispatch(wl->remote_display);
 	}
 
-	return count;
+	return 0;
 }
 
 static bool backend_start(struct wlr_backend *backend) {
@@ -94,9 +90,21 @@ static void backend_destroy(struct wlr_backend *backend) {
 	free(wl);
 }
 
+static int backend_get_render_fd(struct wlr_backend *backend) {
+	struct wlr_wl_backend *wl = get_wl_backend_from_backend(backend);
+	return wl->render_fd;
+}
+
+static struct wlr_format_set *backend_get_formats(struct wlr_backend *backend) {
+	struct wlr_wl_backend *wl = get_wl_backend_from_backend(backend);
+	return &wl->formats;
+}
+
 static struct wlr_backend_impl backend_impl = {
 	.start = backend_start,
 	.destroy = backend_destroy,
+	.get_render_fd = backend_get_render_fd,
+	.get_formats = backend_get_formats,
 };
 
 bool wlr_backend_is_wl(struct wlr_backend *b) {
@@ -239,7 +247,7 @@ struct wlr_backend *wlr_wl_backend_create(struct wl_display *display, const char
 
 	struct wl_event_loop *loop = wl_display_get_event_loop(wl->local_display);
 	int fd = wl_display_get_fd(wl->remote_display);
-	int events = WL_EVENT_READABLE | WL_EVENT_ERROR | WL_EVENT_HANGUP;
+	int events = WL_EVENT_WRITABLE | WL_EVENT_READABLE | WL_EVENT_ERROR | WL_EVENT_HANGUP;
 
 	wl->remote_display_src = wl_event_loop_add_fd(loop, fd, events,
 		dispatch_events, wl);
@@ -247,8 +255,6 @@ struct wlr_backend *wlr_wl_backend_create(struct wl_display *display, const char
 		wlr_log_errno(WLR_ERROR, "Failed to create event source");
 		goto error_globals;
 	}
-
-	wl_event_source_check(wl->remote_display_src);
 
 	return &wl->backend;
 
