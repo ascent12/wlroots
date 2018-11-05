@@ -137,6 +137,12 @@ static bool gles2_render_texture_with_matrix(struct wlr_renderer *wlr_renderer,
 	case WLR_GLES2_TEXTURE_DMABUF:
 		shader = &renderer->shaders.tex_ext;
 		target = GL_TEXTURE_EXTERNAL_OES;
+
+		if (!renderer->exts.egl_image_external_oes) {
+			wlr_log(WLR_ERROR, "Failed to render texture: "
+				"GL_TEXTURE_EXTERNAL_OES not supported");
+			return false;
+		}
 		break;
 	}
 
@@ -208,13 +214,17 @@ static void gles2_render_ellipse_with_matrix(struct wlr_renderer *wlr_renderer,
 
 static const enum wl_shm_format *gles2_renderer_formats(
 		struct wlr_renderer *wlr_renderer, size_t *len) {
-	return get_gles2_formats(len);
+	return get_gles2_wl_formats(len);
+}
+
+static bool gles2_format_supported(struct wlr_renderer *wlr_renderer,
+		enum wl_shm_format wl_fmt) {
+	return get_gles2_format_from_wl(wl_fmt) != NULL;
 }
 
 static bool gles2_resource_is_wl_drm_buffer(struct wlr_renderer *wlr_renderer,
 		struct wl_resource *resource) {
-	struct wlr_gles2_renderer *renderer =
-		gles2_get_renderer(wlr_renderer);
+	struct wlr_gles2_renderer *renderer = gles2_get_renderer(wlr_renderer);
 
 	if (!eglQueryWaylandBufferWL) {
 		return false;
@@ -250,6 +260,33 @@ static int gles2_get_dmabuf_modifiers(struct wlr_renderer *wlr_renderer,
 	struct wlr_gles2_renderer *renderer = gles2_get_renderer(wlr_renderer);
 	return wlr_egl_get_dmabuf_modifiers(renderer->egl, format, modifiers);
 }
+
+static enum wl_shm_format gles2_preferred_read_format(
+		struct wlr_renderer *wlr_renderer) {
+	struct wlr_gles2_renderer *renderer =
+		gles2_get_renderer_in_context(wlr_renderer);
+
+	GLint gl_format = -1, gl_type = -1;
+	PUSH_GLES2_DEBUG;
+	glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_FORMAT, &gl_format);
+	glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_TYPE, &gl_type);
+	POP_GLES2_DEBUG;
+
+	EGLint alpha_size = -1;
+	eglGetConfigAttrib(renderer->egl->display, renderer->egl->config,
+		EGL_ALPHA_SIZE, &alpha_size);
+
+	const struct wlr_gles2_pixel_format *fmt =
+		get_gles2_format_from_gl(gl_format, gl_type, alpha_size > 0);
+	if (fmt != NULL) {
+		return fmt->wl_format;
+	}
+
+	if (renderer->exts.read_format_bgra_ext) {
+		return WL_SHM_FORMAT_XRGB8888;
+	}
+	return WL_SHM_FORMAT_XBGR8888;
+}
 #endif
 
 static bool gles2_read_pixels(struct wlr_renderer *wlr_renderer,
@@ -262,6 +299,12 @@ static bool gles2_read_pixels(struct wlr_renderer *wlr_renderer,
 	const struct wlr_gles2_pixel_format *fmt = get_gles2_format_from_wl(wl_fmt);
 	if (fmt == NULL) {
 		wlr_log(WLR_ERROR, "Cannot read pixels: unsupported pixel format");
+		return false;
+	}
+
+	if (fmt->gl_format == GL_BGRA_EXT && !renderer->exts.read_format_bgra_ext) {
+		wlr_log(WLR_ERROR,
+			"Cannot read pixels: missing GL_EXT_read_format_bgra extension");
 		return false;
 	}
 
@@ -295,11 +338,6 @@ static bool gles2_read_pixels(struct wlr_renderer *wlr_renderer,
 	POP_GLES2_DEBUG;
 
 	return glGetError() == GL_NO_ERROR;
-}
-
-static bool gles2_format_supported(struct wlr_renderer *wlr_renderer,
-		enum wl_shm_format wl_fmt) {
-	return get_gles2_format_from_wl(wl_fmt) != NULL;
 }
 
 static struct wlr_texture *gles2_texture_from_pixels(
@@ -346,7 +384,7 @@ static void gles2_destroy(struct wlr_renderer *wlr_renderer) {
 	POP_GLES2_DEBUG;
 
 #if 0
-	if (glDebugMessageCallbackKHR) {
+	if (renderer->exts.debug_khr) {
 		glDisable(GL_DEBUG_OUTPUT_KHR);
 		glDebugMessageCallbackKHR(NULL, NULL);
 	}
@@ -371,14 +409,15 @@ static const struct wlr_renderer_impl renderer_impl = {
 	.render_quad_with_matrix = gles2_render_quad_with_matrix,
 	.render_ellipse_with_matrix = gles2_render_ellipse_with_matrix,
 	.formats = gles2_renderer_formats,
+	.format_supported = gles2_format_supported,
 	.resource_is_wl_drm_buffer = gles2_resource_is_wl_drm_buffer,
 	.wl_drm_buffer_get_size = gles2_wl_drm_buffer_get_size,
 #if 0
 	.get_dmabuf_formats = gles2_get_dmabuf_formats,
 	.get_dmabuf_modifiers = gles2_get_dmabuf_modifiers,
+	.preferred_read_format = gles2_preferred_read_format,
 #endif
 	.read_pixels = gles2_read_pixels,
-	.format_supported = gles2_format_supported,
 	.texture_from_pixels = gles2_texture_from_pixels,
 	.texture_from_wl_drm = gles2_texture_from_wl_drm,
 	.texture_from_dmabuf = gles2_texture_from_dmabuf,
@@ -481,6 +520,26 @@ error:
 	return 0;
 }
 
+#if 0
+static bool check_gl_ext(const char *exts, const char *ext) {
+	size_t extlen = strlen(ext);
+	const char *end = exts + strlen(exts);
+
+	while (exts < end) {
+		if (exts[0] == ' ') {
+			exts++;
+			continue;
+		}
+		size_t n = strcspn(exts, " ");
+		if (n == extlen && strncmp(ext, exts, n) == 0) {
+			return true;
+		}
+		exts += n;
+	}
+	return false;
+}
+#endif
+
 extern const GLchar quad_vertex_src[];
 extern const GLchar quad_fragment_src[];
 extern const GLchar ellipse_fragment_src[];
@@ -530,10 +589,21 @@ struct wlr_renderer *wlr_gles2_renderer_create(int fd) {
 	gles->egl_image_target_renderbuffer =
 		(void *)eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
 
+	if (!strstr(exts, "GL_EXT_texture_format_BGRA8888")) {
+		wlr_log(WLR_ERROR, "GLES does not support BGRA8888");
+		return NULL;
+	}
+
 	wlr_renderer_init(&gles->wlr_renderer, &renderer_impl);
 
 #if 0
-	if (glDebugMessageCallbackKHR && glDebugMessageControlKHR) {
+	renderer->exts.read_format_bgra_ext =
+		check_gl_ext(renderer->exts_str, "GL_EXT_read_format_bgra");
+	renderer->exts.debug_khr =
+		check_gl_ext(renderer->exts_str, "GL_KHR_debug") &&
+		glDebugMessageCallbackKHR && glDebugMessageControlKHR;
+
+	if (renderer->exts.debug_khr) {
 		glEnable(GL_DEBUG_OUTPUT_KHR);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
 		glDebugMessageCallbackKHR(gles2_log, NULL);
@@ -647,7 +717,7 @@ error:
 
 	POP_GLES2_DEBUG;
 
-	if (glDebugMessageCallbackKHR) {
+	if (renderer->exts.debug_khr) {
 		glDisable(GL_DEBUG_OUTPUT_KHR);
 		glDebugMessageCallbackKHR(NULL, NULL);
 	}
