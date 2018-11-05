@@ -7,14 +7,18 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <gbm.h>
 #include <wayland-client.h>
+
 #include <wlr/interfaces/wlr_output.h>
-#include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_matrix.h>
 #include <wlr/util/log.h>
+
 #include "backend/wayland.h"
 #include "util/signal.h"
+
+#include "linux-dmabuf-unstable-v1-client-protocol.h"
 #include "xdg-shell-unstable-v6-client-protocol.h"
 
 static struct wlr_wl_output *get_wl_output_from_output(
@@ -28,17 +32,6 @@ static struct wl_callback_listener frame_listener;
 static void surface_frame_callback(void *data, struct wl_callback *cb,
 		uint32_t time) {
 	struct wlr_wl_output *output = data;
-
-	if (output->scheduled) {
-		struct wlr_wl_buffer *buffer =
-			gbm_bo_get_user_data(output->scheduled);
-		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-		wl_surface_damage_buffer(output->surface, 0, 0,
-			INT32_MAX, INT32_MAX);
-		output->scheduled = NULL;
-	}
-
-	wl_surface_commit(output->surface);
 
 	wl_callback_destroy(output->frame_callback);
 	output->frame_callback = wl_surface_frame(output->surface);
@@ -198,23 +191,9 @@ static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *
 		void *userdata) {
 	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
 
-	if (output->scheduled) {
-		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
-		assert(buffer);
-
-		struct wlr_output_event_release_buffer event = {
-			.bo = output->scheduled,
-			.userdata = buffer->userdata,
-		};
-
-		output->scheduled = NULL;
-		wl_signal_emit(&wlr_output->events.release_buffer, &event);
-	}
-
 	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
 	if (buffer) {
 		buffer->userdata = userdata;
-		output->scheduled = bo;
 		return true;
 	}
 
@@ -249,7 +228,11 @@ static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *
 
 	gbm_bo_set_user_data(bo, buffer, free_wl_buffer);
 
-	output->scheduled = bo;
+	wl_surface_attach(output->surface, buffer->buffer, 0, 0);
+	wl_surface_damage_buffer(output->surface, 0, 0,
+		INT32_MAX, INT32_MAX);
+
+	wl_surface_commit(output->surface);
 
 	return true;
 }

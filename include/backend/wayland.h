@@ -2,13 +2,13 @@
 #define BACKEND_WAYLAND_H
 
 #include <stdbool.h>
+
 #include <gbm.h>
 #include <wayland-client.h>
 #include <wayland-server.h>
 #include <wayland-util.h>
+
 #include <wlr/backend/wayland.h>
-#include <wlr/render/egl.h>
-#include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_box.h>
 #include <wlr/util/wlr_format_set.h>
 
@@ -17,6 +17,8 @@
 
 struct wlr_wl_backend {
 	struct wlr_backend backend;
+
+	int render_fd;
 
 	/* local state */
 	bool started;
@@ -29,12 +31,13 @@ struct wlr_wl_backend {
 	/* remote state */
 	struct wl_display *remote_display;
 	struct wl_event_source *remote_display_src;
-	struct wl_compositor *compositor;
-	struct wl_pointer *pointer;
 	struct wl_registry *registry;
+
+	struct wl_compositor *compositor;
 	struct wl_seat *seat;
 	struct zwp_linux_dmabuf_v1 *dmabuf;
 	struct zxdg_shell_v6 *shell;
+	struct wl_pointer *pointer;
 
 	struct wlr_format_set formats;
 
@@ -52,8 +55,6 @@ struct wlr_wl_output {
 	struct wl_callback *frame_callback;
 	struct zxdg_surface_v6 *xdg_surface;
 	struct zxdg_toplevel_v6 *xdg_toplevel;
-
-	struct gbm_bo *scheduled;
 
 	uint32_t enter_serial;
 
@@ -91,7 +92,6 @@ struct wlr_wl_pointer {
 
 struct wlr_wl_backend *get_wl_backend_from_backend(
 	struct wlr_backend *wlr_backend);
-void poll_wl_registry(struct wlr_wl_backend *backend);
 void update_wl_output_cursor(struct wlr_wl_output *output);
 struct wlr_wl_pointer *pointer_get_wl(struct wlr_pointer *wlr_pointer);
 void create_wl_pointer(struct wl_pointer *wl_pointer,
