@@ -188,6 +188,15 @@ static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer) {
 	};
 
 	wl_signal_emit(&output->wlr_output.events.release_buffer, &event);
+
+	/*
+	 * It's possible for the compositor to hold onto all of our buffers at
+	 * the same time, before releasing one of them back to us. This'll kill
+	 * our rendering loop, so we start it again by sending a frame event.
+	 */
+	if (!output->frame_callback) {
+		wlr_output_send_frame(&output->wlr_output);
+	}
 }
 
 static const struct wl_buffer_listener buffer_listener = {
