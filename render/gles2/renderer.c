@@ -393,13 +393,87 @@ static void gles2_destroy(struct wlr_renderer *wlr_renderer) {
 	free(gles);
 }
 
-struct gbm_device *gles2_get_gbm(struct wlr_renderer *renderer) {
+static struct gbm_device *gles2_get_gbm(struct wlr_renderer *renderer) {
 	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
 	return gles->gbm;
 }
 
+static bool gles2_image_create(void *userdata, struct wlr_image *image) {
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(userdata);
+
+	struct wlr_gles2_image *priv = calloc(1, sizeof(*priv));
+	if (!priv) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
+		return false;
+	}
+
+	wlr_egl_make_current(gles->egl);
+
+	priv->egl = wlr_egl_create_image(gles->egl, image->bo);
+	if (!priv->egl) {
+		free(priv);
+		return false;
+	}
+
+	glGenFramebuffers(1, &priv->framebuffer);
+	glGenRenderbuffers(1, &priv->renderbuffer);
+
+	glBindRenderbuffer(GL_RENDERBUFFER, priv->renderbuffer);
+	gles->egl_image_target_renderbuffer(GL_RENDERBUFFER, priv->egl);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, priv->framebuffer);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+		GL_RENDERBUFFER, priv->renderbuffer);
+
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	image->renderer_priv = priv;
+
+	return true;
+}
+
+static bool gles2_image_destroy(void *userdata, struct wlr_image *image) {
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(userdata);
+	struct wlr_gles2_image *priv = image->renderer_priv;
+
+	glDeleteRenderbuffers(1, &priv->renderbuffer);
+	glDeleteFramebuffers(1, &priv->framebuffer);
+	wlr_egl_destroy_image(gles->egl, priv->egl);
+	free(priv);
+
+	return true;
+}
+
+static void gles2_bind(struct wlr_renderer *renderer, struct wlr_image *image) {
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
+	struct wlr_gles2_image *priv = image->renderer_priv;
+
+	wlr_egl_make_current(gles->egl);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, priv->framebuffer);
+	glViewport(0, 0, gbm_bo_get_width(image->bo), gbm_bo_get_height(image->bo));
+}
+
+static void gles2_flush(struct wlr_renderer *renderer, int *fence_out) {
+	if (fence_out) {
+		//glFlush();
+		glFinish();
+
+		*fence_out = -1;
+	} else {
+		glFinish();
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 static const struct wlr_renderer_impl renderer_impl = {
 	.get_gbm = gles2_get_gbm,
+	.image_create = gles2_image_create,
+	.image_destroy = gles2_image_destroy,
+	.bind = gles2_bind,
+	.flush = gles2_flush,
 	.destroy = gles2_destroy,
 	.begin = gles2_begin,
 	.end = gles2_end,

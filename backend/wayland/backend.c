@@ -159,7 +159,7 @@ static void registry_global(void *data, struct wl_registry *registry,
 
 	if (strcmp(iface, wl_compositor_interface.name) == 0) {
 		wl->compositor = wl_registry_bind(registry, name,
-			&wl_compositor_interface, 1);
+			&wl_compositor_interface, 4);
 
 	} else if (strcmp(iface, wl_seat_interface.name) == 0) {
 		wl->seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);

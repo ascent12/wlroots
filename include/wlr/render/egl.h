@@ -54,6 +54,8 @@ void wlr_egl_destroy(struct wlr_egl *egl);
  */
 bool wlr_egl_bind_display(struct wlr_egl *egl, struct wl_display *local_display);
 
+EGLImageKHR wlr_egl_create_image(struct wlr_egl *egl, struct gbm_bo *bo);
+
 /**
  * Creates an EGL image from the given wl_drm buffer resource.
  */

@@ -25,8 +25,11 @@
 struct wlr_renderer_impl {
 	struct gbm_device *(*get_gbm)(struct wlr_renderer *renderer);
 
-	bool (*image_created)(struct wlr_renderer *renderer, struct wlr_image *image);
-	void (*image_destroyed)(struct wlr_image *image);
+	bool (*image_create)(void *userdata, struct wlr_image *image);
+	bool (*image_destroy)(void *userdata, struct wlr_image *image);
+
+	void (*bind)(struct wlr_renderer *renderer, struct wlr_image *image);
+	void (*flush)(struct wlr_renderer *renderer, int *fence_out);
 
 	void (*begin)(struct wlr_renderer *renderer, uint32_t width,
 		uint32_t height);

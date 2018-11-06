@@ -20,6 +20,7 @@ static struct gbm_bo *bo_create(struct gbm_device *gbm,
 }
 
 struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
+		wlr_image_func_t create, wlr_image_func_t destroy, void *userdata,
 		uint32_t width, uint32_t height, uint32_t format,
 		const uint64_t *modifiers, size_t num_modifiers,
 		uint32_t flags) {
@@ -33,6 +34,9 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
 	sc->gbm = wlr_renderer_get_gbm(renderer);
 	sc->flags = flags;
 
+	sc->destroy = destroy;
+	sc->userdata = userdata;
+
 	int i;
 	int len = flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
 	for (i = 0; i < len; ++i) {
@@ -43,12 +47,21 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
 			wlr_log_errno(WLR_ERROR, "Failed to create buffer");
 			goto error_images;
 		}
+
+		if (create && !create(userdata, &sc->images[i])) {
+			wlr_log(WLR_ERROR, "Aborting swapchain creation");
+			gbm_bo_destroy(sc->images[i].bo);
+			goto error_images;
+		}
 	}
 
 	return sc;
 
 error_images:
 	for (int j = 0; j < i; ++j) {
+		if (destroy) {
+			destroy(userdata, &sc->images[i]);
+		}
 		gbm_bo_destroy(sc->images[i].bo);
 	}
 	free(sc);
@@ -64,6 +77,9 @@ void wlr_swapchain_destroy(struct wlr_swapchain *sc) {
 	int len = sc->flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
 	for (int i = 0; i < len; ++i) {
 		assert(!sc->images[i].aquired);
+		if (sc->destroy) {
+			sc->destroy(sc->userdata, &sc->images[i]);
+		}
 		gbm_bo_destroy(sc->images[i].bo);
 	}
 	free(sc);

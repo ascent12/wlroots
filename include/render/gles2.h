@@ -26,6 +26,12 @@ struct wlr_gles2_pixel_format {
 	bool has_alpha;
 };
 
+struct wlr_gles2_image {
+	EGLImageKHR egl;
+	GLuint framebuffer;
+	GLuint renderbuffer;
+};
+
 struct wlr_gles2_tex_shader {
 	GLuint program;
 	GLint proj;

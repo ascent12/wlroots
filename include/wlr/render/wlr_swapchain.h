@@ -22,10 +22,15 @@ struct wlr_image {
 	bool aquired;
 };
 
+typedef bool (*wlr_image_func_t)(void *, struct wlr_image *);
+
 struct wlr_swapchain {
 	struct wlr_renderer *renderer;
 	struct gbm_device *gbm;
 	uint32_t flags;
+
+	void *userdata;
+	wlr_image_func_t destroy;
 
 	struct wlr_image images[3];
 
@@ -33,6 +38,7 @@ struct wlr_swapchain {
 };
 
 struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
+		wlr_image_func_t create, wlr_image_func_t destroy, void *userdata,
 		uint32_t width, uint32_t height, uint32_t format,
 		const uint64_t *modifiers, size_t num_modifiers,
 		uint32_t flags);

@@ -21,6 +21,7 @@ enum wlr_renderer_read_pixels_flags {
 };
 
 struct wlr_renderer_impl;
+struct wlr_image;
 
 struct wlr_renderer {
 	const struct wlr_renderer_impl *impl;
@@ -32,8 +33,6 @@ struct wlr_renderer {
 
 struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl, EGLenum platform,
 	void *remote_display, EGLint *config_attribs, EGLint visual_id);
-
-struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r);
 
 void wlr_renderer_begin(struct wlr_renderer *r, int width, int height);
 void wlr_renderer_end(struct wlr_renderer *r);
@@ -125,5 +124,9 @@ void wlr_renderer_init_wl_display(struct wlr_renderer *r,
  * Destroys this wlr_renderer. Textures must be destroyed separately.
  */
 void wlr_renderer_destroy(struct wlr_renderer *renderer);
+
+struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r);
+void wlr_renderer_bind(struct wlr_renderer *r, struct wlr_image *image);
+void wlr_renderer_flush(struct wlr_renderer *r, int *fence_out);
 
 #endif

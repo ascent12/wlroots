@@ -38,15 +38,14 @@ static void surface_frame_callback(void *data, struct wl_callback *cb,
 	if (output->scheduled) {
 		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
 		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-		//wl_surface_damage_buffer(output->surface, 0, 0,
-		//	INT32_MAX, INT32_MAX);
+		wl_surface_damage_buffer(output->surface, 0, 0,
+			INT32_MAX, INT32_MAX);
 		wl_surface_commit(output->surface);
 
 		output->frame_callback = wl_surface_frame(output->surface);
 		wl_callback_add_listener(output->frame_callback, &frame_listener, output);
 
 		output->scheduled = NULL;
-		wlr_log(WLR_DEBUG, "Committed");
 	} else {
 		output->frame_callback = NULL;
 	}
@@ -268,11 +267,9 @@ static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *
 			output);
 
 		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-		//wl_surface_damage_buffer(output->surface, 0, 0,
-		//	INT32_MAX, INT32_MAX);
+		wl_surface_damage_buffer(output->surface, 0, 0,
+			INT32_MAX, INT32_MAX);
 		wl_surface_commit(output->surface);
-
-		wlr_log(WLR_DEBUG, "Committed");
 	} else {
 		output->scheduled = bo;
 	}

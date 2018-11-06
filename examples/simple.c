@@ -15,6 +15,7 @@
 #include <wlr/backend/wayland.h>
 #include <wlr/render/wlr_swapchain.h>
 #include <wlr/render/wlr_renderer.h>
+#include <wlr/render/interface.h>
 #include <wlr/render/gles2.h>
 #include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_output.h>
@@ -30,7 +31,7 @@ struct sample_state {
 	struct wl_listener new_input;
 
 	struct timespec last_frame;
-	float color[3];
+	float color[4];
 	int dec;
 };
 
@@ -52,17 +53,13 @@ struct sample_keyboard {
 };
 
 static void output_frame_notify(struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "Frame");
-
 	struct sample_output *output =
 		wl_container_of(listener, output, frame);
+	struct sample_state *sample = output->sample;
 
 	struct wlr_image *img = wlr_swapchain_aquire(output->swapchain);
 	if (!img)
 		return;
-	wlr_output_schedule_frame2(output->output, img->bo, img);
-
-#if 0
 
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -80,19 +77,16 @@ static void output_frame_notify(struct wl_listener *listener, void *data) {
 		sample->dec = inc;
 	}
 
-	wlr_output_make_current(sample_output->output, NULL);
+	wlr_renderer_bind(sample->renderer, img);
+	wlr_renderer_clear(sample->renderer, sample->color);
+	wlr_renderer_flush(sample->renderer, NULL);
 
-	glClearColor(sample->color[0], sample->color[1], sample->color[2], 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	wlr_output_swap_buffers(sample_output->output, NULL, NULL);
 	sample->last_frame = now;
-#endif
+
+	wlr_output_schedule_frame2(output->output, img->bo, img);
 }
 
 static void output_release_buffer(struct wl_listener *listener, void *data) {
-	wlr_log(WLR_DEBUG, "Release");
-
 	struct sample_output *output =
 		wl_container_of(listener, output, release_buffer);
 
@@ -124,8 +118,11 @@ static void new_output_notify(struct wl_listener *listener, void *data) {
 	sample_output->output = output;
 	sample_output->sample = sample;
 
+	struct wlr_renderer *r = sample->renderer;
+
 	struct wlr_format *fmt = sample->format;
-	sample_output->swapchain = wlr_swapchain_create(sample->renderer, 1280, 720,
+	sample_output->swapchain = wlr_swapchain_create(sample->renderer,
+		r->impl->image_create, r->impl->image_destroy, r, 1280, 720,
 		fmt->format, fmt->len ? fmt->modifiers : NULL, fmt->len, 0);
 
 	wl_signal_add(&output->events.frame, &sample_output->frame);
@@ -138,6 +135,9 @@ static void new_output_notify(struct wl_listener *listener, void *data) {
 	sample_output->destroy.notify = output_remove_notify;
 
 	struct wlr_image *img = wlr_swapchain_aquire(sample_output->swapchain);
+	wlr_renderer_bind(sample->renderer, img);
+	wlr_renderer_clear(sample->renderer, sample->color);
+	wlr_renderer_flush(sample->renderer, NULL);
 	wlr_output_schedule_frame2(output, img->bo, img);
 }
 
@@ -212,7 +212,7 @@ int main(void) {
 	wlr_log_init(WLR_DEBUG, NULL);
 	struct wl_display *display = wl_display_create();
 	struct sample_state state = {
-		.color = { 1.0, 0.0, 0.0 },
+		.color = { 1.0, 0.0, 0.0, 1.0 },
 		.dec = 0,
 		.last_frame = { 0 },
 		.display = display

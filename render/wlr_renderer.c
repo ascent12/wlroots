@@ -38,10 +38,6 @@ void wlr_renderer_destroy(struct wlr_renderer *r) {
 	}
 }
 
-struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r) {
-	return r->impl->get_gbm(r);
-}
-
 void wlr_renderer_begin(struct wlr_renderer *r, int width, int height) {
 	r->impl->begin(r, width, height);
 }
@@ -216,4 +212,16 @@ struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl,
 	return renderer;
 #endif
 	return NULL;
+}
+
+struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r) {
+	return r->impl->get_gbm(r);
+}
+
+void wlr_renderer_bind(struct wlr_renderer *r, struct wlr_image *image) {
+	r->impl->bind(r, image);
+}
+
+void wlr_renderer_flush(struct wlr_renderer *r, int *fd_out) {
+	r->impl->flush(r, fd_out);
 }

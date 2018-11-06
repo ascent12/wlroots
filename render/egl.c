@@ -257,6 +257,11 @@ bool wlr_egl_is_current(struct wlr_egl *egl) {
 	return eglGetCurrentContext() == egl->context;
 }
 
+EGLImageKHR wlr_egl_create_image(struct wlr_egl *egl, struct gbm_bo *bo) {
+	return egl->create_image(egl->display, egl->context,
+		EGL_NATIVE_PIXMAP_KHR, bo, NULL);
+}
+
 EGLImageKHR wlr_egl_create_image_from_wl_drm(struct wlr_egl *egl,
 		struct wl_resource *data, EGLint *fmt, int *width, int *height,
 		bool *inverted_y) {
