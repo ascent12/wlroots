@@ -268,7 +268,7 @@ void wlr_output_init(struct wlr_output *output, struct wlr_backend *backend,
 	wl_list_init(&output->cursors);
 	wl_list_init(&output->resources);
 	wl_signal_init(&output->events.frame);
-	wl_signal_init(&output->events.release_buffer);
+	wl_signal_init(&output->events.release_image);
 	wl_signal_init(&output->events.needs_swap);
 	wl_signal_init(&output->events.swap_buffers);
 	wl_signal_init(&output->events.present);
@@ -574,9 +574,20 @@ void wlr_output_schedule_frame(struct wlr_output *output) {
 #endif
 }
 
-void wlr_output_schedule_frame2(struct wlr_output *output, struct gbm_bo *bo,
-		void *userdata) {
-	output->impl->schedule_frame(output, bo, userdata);
+bool wlr_output_present(struct wlr_output *output, struct wlr_image *img,
+		void *data) {
+	return output->impl->present(output, img, data);
+}
+
+void wlr_output_send_release_image(struct wlr_output *output,
+		struct wlr_image *img, void *data) {
+	struct wlr_output_event_release_image ev = {
+		.output = output,
+		.image = img,
+		.data = data,
+	};
+
+	wlr_signal_emit_safe(&output->events.release_image, &ev);
 }
 
 void wlr_output_send_present(struct wlr_output *output,

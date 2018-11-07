@@ -34,7 +34,7 @@ struct wlr_output_impl {
 	size_t (*get_gamma_size)(struct wlr_output *output);
 	bool (*export_dmabuf)(struct wlr_output *output,
 		struct wlr_dmabuf_attributes *attribs);
-	bool (*schedule_frame)(struct wlr_output *output, struct gbm_bo *bo,
+	bool (*present)(struct wlr_output *output, struct wlr_image *img,
 		void *data);
 };
 
@@ -50,5 +50,7 @@ void wlr_output_damage_whole(struct wlr_output *output);
 void wlr_output_send_frame(struct wlr_output *output);
 void wlr_output_send_present(struct wlr_output *output,
 	struct wlr_output_event_present *event);
+void wlr_output_send_release_image(struct wlr_output *output,
+	struct wlr_image *img, void *data);
 
 #endif

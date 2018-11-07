@@ -90,7 +90,7 @@ struct wlr_output {
 	struct {
 		// Request to render a frame
 		struct wl_signal frame;
-		struct wl_signal release_buffer;
+		struct wl_signal release_image;
 		// Emitted when buffers need to be swapped (because software cursors or
 		// fullscreen damage or because of backend-specific logic)
 		struct wl_signal needs_swap;
@@ -124,15 +124,16 @@ struct wlr_output {
 	void *data;
 };
 
-struct wlr_output_event_release_buffer {
-	struct gbm_bo *bo;
-	void *userdata;
-};
-
 struct wlr_output_event_swap_buffers {
 	struct wlr_output *output;
 	struct timespec *when;
 	pixman_region32_t *damage;
+};
+
+struct wlr_output_event_release_image {
+	struct wlr_output *output;
+	struct wlr_image *image;
+	void *data;
 };
 
 enum wlr_output_present_flag {
@@ -218,8 +219,26 @@ bool wlr_output_swap_buffers(struct wlr_output *output, struct timespec *when,
  */
 void wlr_output_schedule_frame(struct wlr_output *output);
 
-void wlr_output_schedule_frame2(struct wlr_output *output, struct gbm_bo *bo,
-	void *userdata);
+/*
+ * Present a given image as the framebuffer of output.
+ *
+ * The wlr_image must be created from this backend this output is associated
+ * with, otherwise the results are undefined.
+ *
+ * You should not write to img after this call, otherwise visual artifacts such
+ * as screen tearing may occur. Once the backend no long requires img for
+ * presentation, it will signal wlr_output->events.release_image. The data
+ * passed to it will be 'wlr_output_event_release_image', with the output,
+ * image, and data passed to this function. After which, img is avaliable to be
+ * written to again.
+ *
+ * There is no gurantee that the backend will not hold on to more than one
+ * wlr_image at a time.
+ *
+ * Returns false on failure.
+ */
+bool wlr_output_present(struct wlr_output *output, struct wlr_image *img,
+	void *data);
 /**
  * Returns the maximum length of each gamma ramp, or 0 if unsupported.
  */

@@ -12,6 +12,7 @@ lib_wlr_render = static_library(
 	files(
 		'dmabuf.c',
 		'egl.c',
+		'allocator/gbm.c',
 		'gles2/pixel_format.c',
 		'gles2/renderer.c',
 		'gles2/shaders.c',
@@ -20,6 +21,7 @@ lib_wlr_render = static_library(
 		'wlr_renderer.c',
 		'wlr_swapchain.c',
 		'wlr_texture.c',
+		'wlr_allocator.c',
 		'hack.c',
 	),
 	glapi,

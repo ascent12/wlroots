@@ -22,11 +22,10 @@
 #include <wlr/render/dmabuf.h>
 #include <wlr/render/wlr_swapchain.h>
 
-struct wlr_renderer_impl {
-	struct gbm_device *(*get_gbm)(struct wlr_renderer *renderer);
+struct wlr_allocator;
 
-	bool (*image_create)(void *userdata, struct wlr_image *image);
-	bool (*image_destroy)(void *userdata, struct wlr_image *image);
+struct wlr_renderer_impl {
+	struct wlr_allocator *(*get_allocator)(struct wlr_renderer *renderer);
 
 	void (*bind)(struct wlr_renderer *renderer, struct wlr_image *image);
 	void (*flush)(struct wlr_renderer *renderer, int *fence_out);

@@ -12,6 +12,8 @@
 #include <wayland-client.h>
 
 #include <wlr/interfaces/wlr_output.h>
+#include <wlr/render/allocator.h>
+#include <wlr/render/allocator/gbm.h>
 #include <wlr/types/wlr_matrix.h>
 #include <wlr/util/log.h>
 
@@ -34,21 +36,7 @@ static void surface_frame_callback(void *data, struct wl_callback *cb,
 	struct wlr_wl_output *output = data;
 
 	wl_callback_destroy(output->frame_callback);
-
-	if (output->scheduled) {
-		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
-		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-		wl_surface_damage_buffer(output->surface, 0, 0,
-			INT32_MAX, INT32_MAX);
-		wl_surface_commit(output->surface);
-
-		output->frame_callback = wl_surface_frame(output->surface);
-		wl_callback_add_listener(output->frame_callback, &frame_listener, output);
-
-		output->scheduled = NULL;
-	} else {
-		output->frame_callback = NULL;
-	}
+	output->frame_callback = NULL;
 
 	wlr_output_send_frame(&output->wlr_output);
 }
@@ -176,103 +164,36 @@ static bool output_move_cursor(struct wlr_output *_output, int x, int y) {
 	return true;
 }
 
-static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer) {
-	struct gbm_bo *bo = data;
-	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
-	struct wlr_wl_output *output = buffer->output;
-
-	struct wlr_output_event_release_buffer event = {
-		.bo = bo,
-		.userdata = buffer->userdata,
-	};
-
-	wl_signal_emit(&output->wlr_output.events.release_buffer, &event);
-
-	/*
-	 * It's possible for the compositor to hold onto all of our buffers at
-	 * the same time, before releasing one of them back to us. This'll kill
-	 * our rendering loop, so we start it again by sending a frame event.
-	 */
-	if (!output->frame_callback) {
-		wlr_output_send_frame(&output->wlr_output);
-	}
-}
-
-static const struct wl_buffer_listener buffer_listener = {
-	.release = buffer_handle_release,
-};
-
-static void free_wl_buffer(struct gbm_bo *bo, void *data) {
-	struct wlr_wl_buffer *buffer = data;
-
-	wl_buffer_destroy(buffer->buffer);
-	free(buffer);
-}
-
-static bool output_schedule_frame(struct wlr_output *wlr_output, struct gbm_bo *bo,
-		void *userdata) {
+static bool output_present(struct wlr_output *wlr_output, struct wlr_image *img,
+		void *data) {
 	struct wlr_wl_output *output = get_wl_output_from_output(wlr_output);
+	struct wl_buffer *buf = img->backend_priv;
 
-	if (output->scheduled) {
-		struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(output->scheduled);
-		struct wlr_output_event_release_buffer event = {
-			.bo = output->scheduled,
-			.userdata = buffer->userdata,
-		};
+	assert(!wl_buffer_get_user_data(buf));
 
-		wl_signal_emit(&output->wlr_output.events.release_buffer, &event);
-		output->scheduled = NULL;
+	struct wlr_wl_buffer_data *info = calloc(1, sizeof(*info));
+	if (!info) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
+		return false;
 	}
 
-	struct wlr_wl_buffer *buffer = gbm_bo_get_user_data(bo);
-	if (!buffer) {
-		buffer = calloc(1, sizeof(*buffer));
-		if (!buffer) {
-			wlr_log_errno(WLR_ERROR, "Allocation failed");
-			output->scheduled = bo;
-			return false;
-		}
+	info->output = output;
+	info->img = img;
+	info->data = data;
 
-		struct zwp_linux_buffer_params_v1 *params =
-			zwp_linux_dmabuf_v1_create_params(output->backend->dmabuf);
-
-		int fd = gbm_bo_get_fd(bo);
-		uint64_t mod = gbm_bo_get_modifier(bo);
-
-		int n = gbm_bo_get_plane_count(bo);
-		for (int i = 0; i < n; ++i) {
-			zwp_linux_buffer_params_v1_add(params, fd, i,
-				gbm_bo_get_offset(bo, i),
-				gbm_bo_get_stride_for_plane(bo, i),
-				mod >> 32, mod & 0xffffffff);
-		}
-
-		buffer->output = output;
-		buffer->buffer = zwp_linux_buffer_params_v1_create_immed(params,
-			gbm_bo_get_width(bo), gbm_bo_get_height(bo),
-			gbm_bo_get_format(bo), 0);
-		buffer->userdata = userdata;
-		wl_buffer_add_listener(buffer->buffer, &buffer_listener, bo);
-
-		zwp_linux_buffer_params_v1_destroy(params);
-
-		gbm_bo_set_user_data(bo, buffer, free_wl_buffer);
-	} else {
-		buffer->userdata = userdata;
-	}
+	wl_buffer_set_user_data(buf, info);
 
 	if (!output->frame_callback) {
+		output->wlr_output.frame_pending = true;
 		output->frame_callback = wl_surface_frame(output->surface);
 		wl_callback_add_listener(output->frame_callback, &frame_listener,
 			output);
-
-		wl_surface_attach(output->surface, buffer->buffer, 0, 0);
-		wl_surface_damage_buffer(output->surface, 0, 0,
-			INT32_MAX, INT32_MAX);
-		wl_surface_commit(output->surface);
-	} else {
-		output->scheduled = bo;
 	}
+
+	wl_surface_attach(output->surface, buf, 0, 0);
+	wl_surface_damage_buffer(output->surface, 0, 0,
+		INT32_MAX, INT32_MAX);
+	wl_surface_commit(output->surface);
 
 	return true;
 }
@@ -282,7 +203,7 @@ static const struct wlr_output_impl output_impl = {
 	.destroy = output_destroy,
 	.set_cursor = output_set_cursor,
 	.move_cursor = output_move_cursor,
-	.schedule_frame = output_schedule_frame,
+	.present = output_present,
 };
 
 bool wlr_output_is_wl(struct wlr_output *wlr_output) {

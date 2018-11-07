@@ -214,8 +214,8 @@ struct wlr_renderer *wlr_renderer_autocreate(struct wlr_egl *egl,
 	return NULL;
 }
 
-struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r) {
-	return r->impl->get_gbm(r);
+struct wlr_allocator *wlr_renderer_get_allocator(struct wlr_renderer *r) {
+	return r->impl->get_allocator(r);
 }
 
 void wlr_renderer_bind(struct wlr_renderer *r, struct wlr_image *image) {

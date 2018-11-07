@@ -22,6 +22,7 @@
 
 struct wlr_backend_impl;
 struct wlr_format_set;
+struct wlr_gbm_image;
 struct wlr_session;
 
 struct wlr_backend {
@@ -65,14 +66,6 @@ void wlr_backend_destroy(struct wlr_backend *backend);
 struct wlr_renderer;
 struct wlr_renderer *wlr_backend_get_renderer(struct wlr_backend *backend);
 
-/**
- * Obtains a file descriptor referring to a render node.
- * This file descriptor is suitable for creating a wlr_renderer with.
- * The backend retains ownership of the file descriptor, so you should
- * not close it.
- */
-int wlr_backend_get_render_fd(struct wlr_backend *backend);
-
 struct wlr_format_set *wlr_backend_get_formats(struct wlr_backend *backend);
 
 /**
@@ -85,5 +78,36 @@ struct wlr_session *wlr_backend_get_session(struct wlr_backend *backend);
  * Returns the clock used by the backend for presentation feedback.
  */
 clockid_t wlr_backend_get_presentation_clock(struct wlr_backend *backend);
+
+/*
+ * Returns the file descriptor of the render node used by this backend.
+ * This file descriptor is suitable for using with gbm_create_device().
+ * The backend retains ownership of this file descriptor, so it should
+ * not be closed.
+ *
+ * Returns -1 if the backend does not have a render node.
+ */
+int wlr_backend_get_render_fd(struct wlr_backend *backend);
+
+/*
+ * Requests the backend to create local resources for 'img' so that it can be
+ * used for presentation. Any such resources are expected to be added to
+ * img->base.backend_priv.
+ *
+ * This function is used by wlr_gbm_allocator and generally shouldn't need to
+ * be used elsewhere.
+ *
+ * Returns false if it failed or the backend does not support GBM.
+ */
+bool wlr_backend_attach_gbm(struct wlr_backend *backend, struct wlr_gbm_image *img);
+
+/*
+ * Requests the backend to destroy any local resources for 'img', found in
+ * img->base.backend_priv.
+ *
+ * This function is used by wlr_gbm_allocator and generally shouldn't need to
+ * be used elsewhere.
+ */
+void wlr_backend_detach_gbm(struct wlr_backend *backend, struct wlr_gbm_image *img);
 
 #endif

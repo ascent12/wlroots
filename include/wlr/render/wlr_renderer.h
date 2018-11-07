@@ -20,6 +20,7 @@ enum wlr_renderer_read_pixels_flags {
 	WLR_RENDERER_READ_PIXELS_Y_INVERT = 1,
 };
 
+struct wlr_allocator;
 struct wlr_renderer_impl;
 struct wlr_image;
 
@@ -125,7 +126,7 @@ void wlr_renderer_init_wl_display(struct wlr_renderer *r,
  */
 void wlr_renderer_destroy(struct wlr_renderer *renderer);
 
-struct gbm_device *wlr_renderer_get_gbm(struct wlr_renderer *r);
+struct wlr_allocator *wlr_renderer_get_allocator(struct wlr_renderer *r);
 void wlr_renderer_bind(struct wlr_renderer *r, struct wlr_image *image);
 void wlr_renderer_flush(struct wlr_renderer *r, int *fence_out);
 

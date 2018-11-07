@@ -393,66 +393,15 @@ static void gles2_destroy(struct wlr_renderer *wlr_renderer) {
 	free(gles);
 }
 
-static struct gbm_device *gles2_get_gbm(struct wlr_renderer *renderer) {
+static void gles2_bind(struct wlr_renderer *renderer, struct wlr_image *img_base) {
 	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
-	return gles->gbm;
-}
-
-static bool gles2_image_create(void *userdata, struct wlr_image *image) {
-	struct wlr_gles2_renderer *gles = gles2_get_renderer(userdata);
-
-	struct wlr_gles2_image *priv = calloc(1, sizeof(*priv));
-	if (!priv) {
-		wlr_log_errno(WLR_ERROR, "Allocation failed");
-		return false;
-	}
-
-	wlr_egl_make_current(gles->egl);
-
-	priv->egl = wlr_egl_create_image(gles->egl, image->bo);
-	if (!priv->egl) {
-		free(priv);
-		return false;
-	}
-
-	glGenFramebuffers(1, &priv->framebuffer);
-	glGenRenderbuffers(1, &priv->renderbuffer);
-
-	glBindRenderbuffer(GL_RENDERBUFFER, priv->renderbuffer);
-	gles->egl_image_target_renderbuffer(GL_RENDERBUFFER, priv->egl);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, priv->framebuffer);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-		GL_RENDERBUFFER, priv->renderbuffer);
-
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	image->renderer_priv = priv;
-
-	return true;
-}
-
-static bool gles2_image_destroy(void *userdata, struct wlr_image *image) {
-	struct wlr_gles2_renderer *gles = gles2_get_renderer(userdata);
-	struct wlr_gles2_image *priv = image->renderer_priv;
-
-	glDeleteRenderbuffers(1, &priv->renderbuffer);
-	glDeleteFramebuffers(1, &priv->framebuffer);
-	wlr_egl_destroy_image(gles->egl, priv->egl);
-	free(priv);
-
-	return true;
-}
-
-static void gles2_bind(struct wlr_renderer *renderer, struct wlr_image *image) {
-	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
-	struct wlr_gles2_image *priv = image->renderer_priv;
+	struct wlr_gbm_image *img = (struct wlr_gbm_image *)img_base;
+	struct wlr_gles2_image *priv = img->renderer_priv;
 
 	wlr_egl_make_current(gles->egl);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, priv->framebuffer);
-	glViewport(0, 0, gbm_bo_get_width(image->bo), gbm_bo_get_height(image->bo));
+	glViewport(0, 0, gbm_bo_get_width(img->bo), gbm_bo_get_height(img->bo));
 }
 
 static void gles2_flush(struct wlr_renderer *renderer, int *fence_out) {
@@ -468,10 +417,13 @@ static void gles2_flush(struct wlr_renderer *renderer, int *fence_out) {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+static struct wlr_allocator *gles2_get_allocator(struct wlr_renderer *renderer) {
+	struct wlr_gles2_renderer *gles = gles2_get_renderer(renderer);
+	return &gles->gbm->base;
+}
+
 static const struct wlr_renderer_impl renderer_impl = {
-	.get_gbm = gles2_get_gbm,
-	.image_create = gles2_image_create,
-	.image_destroy = gles2_image_destroy,
+	.get_allocator = gles2_get_allocator,
 	.bind = gles2_bind,
 	.flush = gles2_flush,
 	.destroy = gles2_destroy,
@@ -614,6 +566,53 @@ static bool check_gl_ext(const char *exts, const char *ext) {
 }
 #endif
 
+static bool gles2_gbm_create(void *data, struct wlr_gbm_image *img) {
+	struct wlr_gles2_renderer *gles = data;
+
+	struct wlr_gles2_image *priv = calloc(1, sizeof(*priv));
+	if (!priv) {
+		wlr_log_errno(WLR_ERROR, "Allocation failed");
+		return false;
+	}
+
+	wlr_egl_make_current(gles->egl);
+
+	priv->egl = wlr_egl_create_image(gles->egl, img->bo);
+	if (!priv->egl) {
+		free(priv);
+		return false;
+	}
+
+	glGenFramebuffers(1, &priv->framebuffer);
+	glGenRenderbuffers(1, &priv->renderbuffer);
+
+	glBindRenderbuffer(GL_RENDERBUFFER, priv->renderbuffer);
+	gles->egl_image_target_renderbuffer(GL_RENDERBUFFER, priv->egl);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, priv->framebuffer);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+		GL_RENDERBUFFER, priv->renderbuffer);
+
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	img->renderer_priv = priv;
+
+	return true;
+}
+
+static bool gles2_gbm_destroy(void *data, struct wlr_gbm_image *img) {
+	struct wlr_gles2_renderer *gles = data;
+	struct wlr_gles2_image *priv = img->renderer_priv;
+
+	glDeleteRenderbuffers(1, &priv->renderbuffer);
+	glDeleteFramebuffers(1, &priv->framebuffer);
+	wlr_egl_destroy_image(gles->egl, priv->egl);
+	free(priv);
+
+	return true;
+}
+
 extern const GLchar quad_vertex_src[];
 extern const GLchar quad_fragment_src[];
 extern const GLchar ellipse_fragment_src[];
@@ -622,20 +621,23 @@ extern const GLchar tex_fragment_src_rgba[];
 extern const GLchar tex_fragment_src_rgbx[];
 extern const GLchar tex_fragment_src_external[];
 
-struct wlr_renderer *wlr_gles2_renderer_create(int fd) {
+struct wlr_renderer *wlr_gles2_renderer_create(struct wlr_backend *backend) {
 	struct wlr_gles2_renderer *gles = calloc(1, sizeof(*gles));
 	if (!gles) {
 		wlr_log_errno(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 
-	gles->gbm = gbm_create_device(fd);
+	gles->backend = backend;
+
+	gles->gbm = wlr_gbm_allocator_create(backend, gles,
+		gles2_gbm_create, gles2_gbm_destroy);
 	if (!gles->gbm) {
 		wlr_log_errno(WLR_ERROR, "Failed to create GBM device");
 		return NULL;
 	}
 
-	gles->egl = wlr_egl_create(gles->gbm);
+	gles->egl = wlr_egl_create(gles->gbm->gbm);
 	if (!gles->egl) {
 		return NULL;
 	}

@@ -4,15 +4,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
 #include <gbm.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+
 #include <wlr/backend.h>
 #include <wlr/render/egl.h>
 #include <wlr/render/gles2.h>
 #include <wlr/render/interface.h>
+#include <wlr/render/allocator.h>
+#include <wlr/render/allocator/gbm.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/util/log.h>
@@ -42,8 +46,9 @@ struct wlr_gles2_tex_shader {
 
 struct wlr_gles2_renderer {
 	struct wlr_renderer wlr_renderer;
+	struct wlr_backend *backend;
 
-	struct gbm_device *gbm;
+	struct wlr_gbm_allocator *gbm;
 	struct wlr_egl *egl;
 
 	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC egl_image_target_texture;

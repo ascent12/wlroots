@@ -41,7 +41,7 @@ struct sample_output {
 	struct wlr_swapchain *swapchain;
 
 	struct wl_listener frame;
-	struct wl_listener release_buffer;
+	struct wl_listener release_image;
 	struct wl_listener destroy;
 };
 
@@ -52,11 +52,8 @@ struct sample_keyboard {
 	struct wl_listener destroy;
 };
 
-static void output_frame_notify(struct wl_listener *listener, void *data) {
-	struct sample_output *output =
-		wl_container_of(listener, output, frame);
+static void draw(struct sample_output *output) {
 	struct sample_state *sample = output->sample;
-
 	struct wlr_image *img = wlr_swapchain_aquire(output->swapchain);
 	if (!img)
 		return;
@@ -83,15 +80,26 @@ static void output_frame_notify(struct wl_listener *listener, void *data) {
 
 	sample->last_frame = now;
 
-	wlr_output_schedule_frame2(output->output, img->bo, img);
+	wlr_output_present(output->output, img, output);
 }
 
-static void output_release_buffer(struct wl_listener *listener, void *data) {
+static void output_frame_notify(struct wl_listener *listener, void *data) {
 	struct sample_output *output =
-		wl_container_of(listener, output, release_buffer);
+		wl_container_of(listener, output, frame);
 
-	struct wlr_output_event_release_buffer *event = data;
-	wlr_swapchain_release(output->swapchain, event->userdata);
+	draw(output);
+}
+
+static void output_release_image(struct wl_listener *listener, void *data) {
+	struct sample_output *output =
+		wl_container_of(listener, output, release_image);
+
+	struct wlr_output_event_release_image *event = data;
+	wlr_swapchain_release(output->swapchain, event->image);
+
+	if (!output->output->frame_pending) {
+		draw(output);
+	}
 }
 
 static void output_remove_notify(struct wl_listener *listener, void *data) {
@@ -118,18 +126,16 @@ static void new_output_notify(struct wl_listener *listener, void *data) {
 	sample_output->output = output;
 	sample_output->sample = sample;
 
-	struct wlr_renderer *r = sample->renderer;
-
 	struct wlr_format *fmt = sample->format;
-	sample_output->swapchain = wlr_swapchain_create(sample->renderer,
-		r->impl->image_create, r->impl->image_destroy, r, 1280, 720,
-		fmt->format, fmt->len ? fmt->modifiers : NULL, fmt->len, 0);
+	sample_output->swapchain = wlr_swapchain_create(
+		wlr_renderer_get_allocator(sample->renderer), 1280, 720,
+		fmt->format, fmt->len, fmt->modifiers, 0);
 
 	wl_signal_add(&output->events.frame, &sample_output->frame);
 	sample_output->frame.notify = output_frame_notify;
 
-	wl_signal_add(&output->events.release_buffer, &sample_output->release_buffer);
-	sample_output->release_buffer.notify = output_release_buffer;
+	wl_signal_add(&output->events.release_image, &sample_output->release_image);
+	sample_output->release_image.notify = output_release_image;
 
 	wl_signal_add(&output->events.destroy, &sample_output->destroy);
 	sample_output->destroy.notify = output_remove_notify;
@@ -138,7 +144,7 @@ static void new_output_notify(struct wl_listener *listener, void *data) {
 	wlr_renderer_bind(sample->renderer, img);
 	wlr_renderer_clear(sample->renderer, sample->color);
 	wlr_renderer_flush(sample->renderer, NULL);
-	wlr_output_schedule_frame2(output, img->bo, img);
+	wlr_output_present(output, img, sample_output);
 }
 
 static void keyboard_key_notify(struct wl_listener *listener, void *data) {
@@ -232,7 +238,7 @@ int main(void) {
 
 	clock_gettime(CLOCK_MONOTONIC, &state.last_frame);
 
-	state.renderer = wlr_gles2_renderer_create(wlr_backend_get_render_fd(backend));
+	state.renderer = wlr_gles2_renderer_create(backend);
 	state.format = wlr_backend_get_formats(backend)->formats[0];
 
 	if (!wlr_backend_start(backend)) {

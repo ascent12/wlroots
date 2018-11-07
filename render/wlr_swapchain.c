@@ -2,27 +2,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
 #include <gbm.h>
 
 #include <wlr/util/log.h>
 #include "wlr/render/wlr_swapchain.h"
 
-static struct gbm_bo *bo_create(struct gbm_device *gbm,
+struct wlr_swapchain *wlr_swapchain_create(struct wlr_allocator *alloc,
 		uint32_t width, uint32_t height, uint32_t format,
-		const uint64_t *modifiers, size_t num_modifiers, bool scanout) {
-	if (modifiers) {
-		return gbm_bo_create_with_modifiers(gbm, width, height, format, 
-			modifiers, num_modifiers);
-	} else {
-		return gbm_bo_create(gbm, width, height, format, GBM_BO_USE_RENDERING);
-	}
-}
-
-struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
-		wlr_image_func_t create, wlr_image_func_t destroy, void *userdata,
-		uint32_t width, uint32_t height, uint32_t format,
-		const uint64_t *modifiers, size_t num_modifiers,
+		size_t num_modifiers, const uint64_t *modifiers,
 		uint32_t flags) {
 	struct wlr_swapchain *sc = calloc(1, sizeof(*sc));
 	if (!sc) {
@@ -30,27 +19,16 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
 		return NULL;
 	}
 
-	sc->renderer = renderer;
-	sc->gbm = wlr_renderer_get_gbm(renderer);
+	sc->alloc = alloc;
 	sc->flags = flags;
+	sc->num_images = flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
 
-	sc->destroy = destroy;
-	sc->userdata = userdata;
-
-	int i;
-	int len = flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
-	for (i = 0; i < len; ++i) {
-		sc->images[i].swapchain = sc;
-		sc->images[i].bo = bo_create(sc->gbm, width, height, format,
-			modifiers, num_modifiers, flags & WLR_SWAPCHAIN_USE_SCANOUT);
-		if (!sc->images[i].bo) {
-			wlr_log_errno(WLR_ERROR, "Failed to create buffer");
-			goto error_images;
-		}
-
-		if (create && !create(userdata, &sc->images[i])) {
-			wlr_log(WLR_ERROR, "Aborting swapchain creation");
-			gbm_bo_destroy(sc->images[i].bo);
+	size_t i;
+	for (i = 0; i < sc->num_images; ++i) {
+		sc->images[i].img = wlr_allocator_allocate(alloc,
+			width, height, format, num_modifiers, modifiers);
+		if (!sc->images[i].img) {
+			wlr_log_errno(WLR_ERROR, "Failed to create image");
 			goto error_images;
 		}
 	}
@@ -58,11 +36,8 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_renderer *renderer,
 	return sc;
 
 error_images:
-	for (int j = 0; j < i; ++j) {
-		if (destroy) {
-			destroy(userdata, &sc->images[i]);
-		}
-		gbm_bo_destroy(sc->images[i].bo);
+	for (size_t j = 0; j < i; ++j) {
+		wlr_allocator_deallocate(alloc, sc->images[i].img);
 	}
 	free(sc);
 
@@ -74,41 +49,44 @@ void wlr_swapchain_destroy(struct wlr_swapchain *sc) {
 		return;
 	}
 
-	int len = sc->flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
-	for (int i = 0; i < len; ++i) {
+	for (size_t i = 0; i < sc->num_images; ++i) {
 		assert(!sc->images[i].aquired);
-		if (sc->destroy) {
-			sc->destroy(sc->userdata, &sc->images[i]);
-		}
-		gbm_bo_destroy(sc->images[i].bo);
+		wlr_allocator_deallocate(sc->alloc, sc->images[i].img);
 	}
 	free(sc);
 }
 
 struct wlr_image *wlr_swapchain_aquire(struct wlr_swapchain *sc) {
-	struct wlr_image *ret = NULL;
+	ssize_t i = -1;
 
-	int len = sc->flags & WLR_SWAPCHAIN_TRIPLE_BUFFERED ? 3 : 2;
-	for (int i = 0; i < len; ++i) {
-		if (sc->images[i].aquired) {
+	for (ssize_t j = 0; j < (ssize_t)sc->num_images; ++j) {
+		if (sc->images[j].aquired) {
 			continue;
 		}
 
-		if (!ret || sc->images[i].seq < ret->seq) {
-			ret = &sc->images[i];
+		if (i < 0 || sc->images[j].seq < sc->images[i].seq) {
+			i = j;
 		}
 	}
 
-	if (ret) {
-		ret->aquired = true;
+	if (i >= 0) {
+		sc->images[i].aquired = true;
+		return sc->images[i].img;
 	}
-	return ret;
+	return NULL;
 }
 
 void wlr_swapchain_release(struct wlr_swapchain *sc, struct wlr_image *image) {
-	assert(image->swapchain == sc);
-	assert(image->aquired);
+	size_t i;
+	for (i = 0; i < sc->num_images; ++i) {
+		if (sc->images[i].img == image) {
+			break;
+		}
+	}
 
-	image->aquired = false;
-	image->seq = ++sc->seq;
+	assert(i < sc->num_images);
+	assert(sc->images[i].aquired);
+
+	sc->images[i].aquired = false;
+	sc->images[i].seq = ++sc->seq;
 }

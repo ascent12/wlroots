@@ -8,7 +8,9 @@
 #include <unistd.h>
 
 #include <wayland-server.h>
+#include <wayland-client.h>
 
+#include <wlr/render/allocator/gbm.h>
 #include <wlr/backend/interface.h>
 #include <wlr/interfaces/wlr_input_device.h>
 #include <wlr/interfaces/wlr_output.h>
@@ -95,6 +97,56 @@ static int backend_get_render_fd(struct wlr_backend *backend) {
 	return wl->render_fd;
 }
 
+static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer) {
+	struct wlr_wl_buffer_data *info = wl_buffer_get_user_data(wl_buffer);
+
+	assert(info);
+
+	wl_buffer_set_user_data(wl_buffer, NULL);
+	wlr_output_send_release_image(&info->output->wlr_output, info->img, info->data);
+
+	free(info);
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+	.release = buffer_handle_release,
+};
+
+static bool backend_attach_gbm(struct wlr_backend *backend, struct wlr_gbm_image *img) {
+	struct wlr_wl_backend *wl = get_wl_backend_from_backend(backend);
+	struct gbm_bo *bo = img->bo;
+
+	struct zwp_linux_buffer_params_v1 *params =
+		zwp_linux_dmabuf_v1_create_params(wl->dmabuf);
+
+	int fd = gbm_bo_get_fd(bo);
+	uint64_t mod = gbm_bo_get_modifier(bo);
+
+	int n = gbm_bo_get_plane_count(bo);
+	for (int i = 0; i < n; ++i) {
+		zwp_linux_buffer_params_v1_add(params, fd, i,
+			gbm_bo_get_offset(bo, i),
+			gbm_bo_get_stride_for_plane(bo, i),
+			mod >> 32, mod & 0xffffffff);
+	}
+
+	struct wl_buffer *buf = zwp_linux_buffer_params_v1_create_immed(params,
+		gbm_bo_get_width(bo), gbm_bo_get_height(bo),
+		gbm_bo_get_format(bo), 0);
+
+	zwp_linux_buffer_params_v1_destroy(params);
+	wl_buffer_add_listener(buf, &buffer_listener, NULL);
+
+	img->base.backend_priv = buf;
+
+	return true;
+}
+
+static void backend_detach_gbm(struct wlr_backend *backend, struct wlr_gbm_image *img) {
+	wl_buffer_destroy(img->base.backend_priv);
+	img->base.backend_priv = NULL;
+}
+
 static struct wlr_format_set *backend_get_formats(struct wlr_backend *backend) {
 	struct wlr_wl_backend *wl = get_wl_backend_from_backend(backend);
 	return &wl->formats;
@@ -103,8 +155,10 @@ static struct wlr_format_set *backend_get_formats(struct wlr_backend *backend) {
 static struct wlr_backend_impl backend_impl = {
 	.start = backend_start,
 	.destroy = backend_destroy,
-	.get_render_fd = backend_get_render_fd,
 	.get_formats = backend_get_formats,
+	.get_render_fd = backend_get_render_fd,
+	.attach_gbm = backend_attach_gbm,
+	.detach_gbm = backend_detach_gbm,
 };
 
 bool wlr_backend_is_wl(struct wlr_backend *b) {

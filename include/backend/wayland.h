@@ -56,8 +56,6 @@ struct wlr_wl_output {
 	struct zxdg_surface_v6 *xdg_surface;
 	struct zxdg_toplevel_v6 *xdg_toplevel;
 
-	struct gbm_bo *scheduled;
-
 	uint32_t enter_serial;
 
 	struct {
@@ -67,10 +65,10 @@ struct wlr_wl_output {
 	} cursor;
 };
 
-struct wlr_wl_buffer {
+struct wlr_wl_buffer_data {
 	struct wlr_wl_output *output;
-	struct wl_buffer *buffer;
-	void *userdata;
+	struct wlr_image *img;
+	void *data;
 };
 
 struct wlr_wl_input_device {

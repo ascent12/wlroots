@@ -20,15 +20,20 @@
 
 struct wlr_backend;
 struct wlr_format_set;
+struct wlr_gbm_image;
 struct wlr_session;
 
 struct wlr_backend_impl {
 	bool (*start)(struct wlr_backend *backend);
 	void (*destroy)(struct wlr_backend *backend);
-	int (*get_render_fd)(struct wlr_backend *backend);
 	struct wlr_format_set *(*get_formats)(struct wlr_backend *backend);
 	struct wlr_session *(*get_session)(struct wlr_backend *backend);
 	clockid_t (*get_presentation_clock)(struct wlr_backend *backend);
+
+	// GBM functions
+	int (*get_render_fd)(struct wlr_backend *backend);
+	bool (*attach_gbm)(struct wlr_backend *backend, struct wlr_gbm_image *img);
+	void (*detach_gbm)(struct wlr_backend *backend, struct wlr_gbm_image *img);
 };
 
 /**
