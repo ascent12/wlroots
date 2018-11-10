@@ -2,14 +2,18 @@
 #define BACKEND_X11_H
 
 #include <stdbool.h>
-#include <wayland-server.h>
+
 #include <wlr/config.h>
+
+#include <wayland-server.h>
+#include <xcb/xcb.h>
+#include <xcb/present.h>
+
 #include <wlr/backend/x11.h>
 #include <wlr/interfaces/wlr_input_device.h>
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/egl.h>
-#include <X11/Xlib-xcb.h>
-#include <xcb/xcb.h>
+#include <wlr/util/wlr_format_set.h>
 
 #define XCB_EVENT_RESPONSE_TYPE_MASK 0x7f
 
@@ -23,13 +27,17 @@ struct wlr_x11_output {
 	struct wl_list link; // wlr_x11_backend::outputs
 
 	xcb_window_t win;
-	EGLSurface surf;
+	xcb_present_event_t present_id;
 
 	struct wlr_pointer pointer;
 	struct wlr_input_device pointer_dev;
 
-	struct wl_event_source *frame_timer;
-	int frame_delay;
+	/*
+	 * Images we've waiting to be released.
+	 * The set bits index into images.
+	 */
+	uint8_t serials;
+	struct wlr_image *images[8];
 };
 
 struct wlr_x11_backend {
@@ -37,9 +45,19 @@ struct wlr_x11_backend {
 	struct wl_display *wl_display;
 	bool started;
 
-	Display *xlib_conn;
-	xcb_connection_t *xcb_conn;
-	xcb_screen_t *screen;
+	xcb_connection_t *xcb;
+	xcb_window_t root;
+	xcb_visualid_t visual;
+
+	struct wlr_format_set formats;
+
+	int render_fd;
+
+	// DRI3 1.2 required
+	bool has_modifiers;
+
+	uint8_t present_opcode;
+	uint8_t xinput_opcode;
 
 	size_t requested_outputs;
 	struct wl_list outputs; // wlr_x11_output::link
@@ -47,8 +65,6 @@ struct wlr_x11_backend {
 	struct wlr_keyboard keyboard;
 	struct wlr_input_device keyboard_dev;
 
-	struct wlr_egl egl;
-	struct wlr_renderer *renderer;
 	struct wl_event_source *event_source;
 
 	struct {
@@ -61,11 +77,7 @@ struct wlr_x11_backend {
 	// The time we last received an event
 	xcb_timestamp_t time;
 
-	// A blank cursor
-	xcb_cursor_t cursor;
-
 #ifdef WLR_HAS_XCB_XKB
-	bool xkb_supported;
 	uint8_t xkb_base_event;
 	uint8_t xkb_base_error;
 #endif
@@ -75,7 +87,7 @@ struct wlr_x11_backend {
 
 struct wlr_x11_backend *get_x11_backend_from_backend(
 	struct wlr_backend *wlr_backend);
-struct wlr_x11_output *get_x11_output_from_window_id(
+struct wlr_x11_output *output_from_window(
 	struct wlr_x11_backend *x11, xcb_window_t window);
 
 extern const struct wlr_keyboard_impl keyboard_impl;
@@ -87,7 +99,7 @@ void handle_x11_input_event(struct wlr_x11_backend *x11,
 void update_x11_pointer_position(struct wlr_x11_output *output,
 	xcb_timestamp_t time);
 
-void handle_x11_configure_notify(struct wlr_x11_output *output,
-	xcb_configure_notify_event_t *event);
+void handle_present_event(struct wlr_x11_backend *x11, xcb_present_generic_event_t *e);
+void handle_xinput_event(struct wlr_x11_backend *x11, xcb_ge_generic_event_t *e);
 
 #endif

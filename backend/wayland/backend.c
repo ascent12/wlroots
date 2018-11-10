@@ -97,13 +97,24 @@ static int backend_get_render_fd(struct wlr_backend *backend) {
 	return wl->render_fd;
 }
 
+extern struct wl_callback_listener frame_listener;
+
 static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer) {
 	struct wlr_wl_buffer_data *info = wl_buffer_get_user_data(wl_buffer);
+	struct wlr_wl_output *output = info->output;
 
 	assert(info);
 
 	wl_buffer_set_user_data(wl_buffer, NULL);
-	wlr_output_send_release_image(&info->output->wlr_output, info->img, info->data);
+	wl_signal_emit(&info->img->release, info->img);
+
+	if (!output->frame_callback) {
+		output->wlr_output.frame_pending = true;
+		output->frame_callback = wl_surface_frame(output->surface);
+		wl_callback_add_listener(output->frame_callback, &frame_listener,
+			output);
+		wl_surface_commit(output->surface);
+	}
 
 	free(info);
 }

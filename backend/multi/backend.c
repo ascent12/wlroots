@@ -59,15 +59,60 @@ static void multi_backend_destroy(struct wlr_backend *wlr_backend) {
 	free(backend);
 }
 
-static struct wlr_renderer *multi_backend_get_renderer(
-		struct wlr_backend *backend) {
+static int multi_backend_get_render_fd(struct wlr_backend *backend) {
 	struct wlr_multi_backend *multi = multi_backend_from_backend(backend);
 
 	struct subbackend_state *sub;
 	wl_list_for_each(sub, &multi->backends, link) {
-		struct wlr_renderer *rend = wlr_backend_get_renderer(sub->backend);
-		if (rend != NULL) {
-			return rend;
+		int fd = wlr_backend_get_render_fd(sub->backend);
+		if (fd >= 0) {
+			return fd;
+		}
+	}
+	return -1;
+}
+
+/*
+ * XXX: This function is broken.
+ */
+static bool multi_backend_attach_gbm(struct wlr_backend *backend,
+		struct wlr_gbm_image *img) {
+	struct wlr_multi_backend *multi = multi_backend_from_backend(backend);
+
+	struct subbackend_state *sub;
+	wl_list_for_each(sub, &multi->backends, link) {
+		if (wlr_backend_attach_gbm(sub->backend, img)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * XXX: This function is broken.
+ */
+static void multi_backend_detach_gbm(struct wlr_backend *backend,
+		struct wlr_gbm_image *img) {
+	struct wlr_multi_backend *multi = multi_backend_from_backend(backend);
+
+	struct subbackend_state *sub;
+	wl_list_for_each(sub, &multi->backends, link) {
+		wlr_backend_attach_gbm(sub->backend, img);
+		return;
+	}
+}
+
+/*
+ * XXX: This function is broken.
+ */
+static struct wlr_format_set *multi_backend_get_formats(struct wlr_backend *backend) {
+	struct wlr_multi_backend *multi = multi_backend_from_backend(backend);
+
+	struct subbackend_state *sub;
+	wl_list_for_each(sub, &multi->backends, link) {
+		struct wlr_format_set *formats = wlr_backend_get_formats(sub->backend);
+		if (formats) {
+			return formats;
 		}
 	}
 	return NULL;
@@ -96,7 +141,10 @@ static clockid_t multi_backend_get_presentation_clock(
 struct wlr_backend_impl backend_impl = {
 	.start = multi_backend_start,
 	.destroy = multi_backend_destroy,
-	.get_renderer = multi_backend_get_renderer,
+	.get_render_fd = multi_backend_get_render_fd,
+	.attach_gbm = multi_backend_attach_gbm,
+	.detach_gbm = multi_backend_detach_gbm,
+	.get_formats = multi_backend_get_formats,
 	.get_session = multi_backend_get_session,
 	.get_presentation_clock = multi_backend_get_presentation_clock,
 };
@@ -169,10 +217,12 @@ bool wlr_multi_backend_add(struct wlr_backend *_multi,
 		return true;
 	}
 
-	struct wlr_renderer *multi_renderer =
-		multi_backend_get_renderer(&multi->backend);
-	struct wlr_renderer *backend_renderer = wlr_backend_get_renderer(backend);
-	if (multi_renderer != NULL && backend_renderer != NULL && multi_renderer != backend_renderer) {
+	/*
+	 * TODO: Check for equivilent devices by major:minor etc.
+	 */
+	int multi_fd = multi_backend_get_render_fd(&multi->backend);
+	int fd = wlr_backend_get_render_fd(backend);
+	if (multi_fd >= 0 && fd >= 0 && multi_fd != fd) {
 		wlr_log(WLR_ERROR, "Could not add backend: multiple renderers at the "
 			"same time aren't supported");
 		return false;

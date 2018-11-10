@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <drm_fourcc.h>
 #include <gbm.h>
+#include <wayland-server.h>
 
 #include <wlr/backend.h>
 #include <wlr/render/allocator.h>
@@ -30,13 +32,21 @@ static struct wlr_image *wlr_gbm_allocate(struct wlr_allocator *base,
 	img->base.width = width;
 	img->base.height = height;
 	img->base.format = format;
+	wl_signal_init(&img->base.release);
 
-	if (num_modifiers) {
+	bool is_linear = num_modifiers == 1 &&
+		modifiers[0] == DRM_FORMAT_MOD_LINEAR;
+
+	if (!is_linear && num_modifiers) {
 		img->bo = gbm_bo_create_with_modifiers(alloc->gbm,
 			width, height, format, modifiers, num_modifiers);
 	} else {
-		img->bo = gbm_bo_create(alloc->gbm, width, height, format,
-			GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT);
+		uint32_t flags = GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT;
+		if (is_linear) {
+			flags |= GBM_BO_USE_LINEAR;
+		}
+
+		img->bo = gbm_bo_create(alloc->gbm, width, height, format, flags);
 	}
 
 	if (!img->bo) {

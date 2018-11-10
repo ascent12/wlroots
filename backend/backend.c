@@ -14,7 +14,7 @@
 //#include <wlr/backend/headless.h>
 #include <wlr/backend/interface.h>
 //#include <wlr/backend/libinput.h>
-//#include <wlr/backend/multi.h>
+#include <wlr/backend/multi.h>
 //#include <wlr/backend/session.h>
 #include <wlr/backend/wayland.h>
 #include <wlr/util/log.h>
@@ -22,9 +22,9 @@
 #include "backend/multi.h"
 
 /* WLR_HAS_X11_BACKEND needs to be after wlr/config.h */
-//#ifdef WLR_HAS_X11_BACKEND
-//#include <wlr/backend/x11.h>
-//#endif
+#ifdef WLR_HAS_X11_BACKEND
+#include <wlr/backend/x11.h>
+#endif
 
 void wlr_backend_init(struct wlr_backend *backend,
 		const struct wlr_backend_impl *impl) {
@@ -107,7 +107,6 @@ void wlr_backend_detach_gbm(struct wlr_backend *backend, struct wlr_gbm_image *i
 	}
 }
 
-#if 0
 static size_t parse_outputs_env(const char *name) {
 	const char *outputs_str = getenv(name);
 	if (!outputs_str) {
@@ -157,6 +156,7 @@ static struct wlr_backend *attempt_x11_backend(struct wl_display *display,
 }
 #endif
 
+#if 0
 static struct wlr_backend *attempt_headless_backend(struct wl_display *display) {
 	struct wlr_backend *backend = wlr_headless_backend_create(display);
 	if (!backend) {
@@ -195,6 +195,7 @@ static struct wlr_backend *attempt_drm_backend(struct wl_display *display,
 
 	return primary_drm;
 }
+#endif
 
 static struct wlr_backend *attempt_backend_by_name(struct wl_display *display,
 		struct wlr_backend *backend, struct wlr_session **session,
@@ -205,6 +206,7 @@ static struct wlr_backend *attempt_backend_by_name(struct wl_display *display,
 	} else if (strcmp(name, "x11") == 0) {
 		return attempt_x11_backend(display, NULL);
 #endif
+#if 0
 	} else if (strcmp(name, "headless") == 0) {
 		return attempt_headless_backend(display);
 	} else if (strcmp(name, "drm") == 0 || strcmp(name, "libinput") == 0) {
@@ -222,6 +224,7 @@ static struct wlr_backend *attempt_backend_by_name(struct wl_display *display,
 		} else {
 			return attempt_drm_backend(display, backend, *session);
 		}
+#endif
 	}
 
 	wlr_log(WLR_ERROR, "unrecognized backend '%s'", name);
@@ -275,8 +278,7 @@ struct wlr_backend *wlr_backend_autocreate(struct wl_display *display) {
 
 	if (getenv("WAYLAND_DISPLAY") || getenv("_WAYLAND_DISPLAY") ||
 			getenv("WAYLAND_SOCKET")) {
-		struct wlr_backend *wl_backend = attempt_wl_backend(display,
-			create_renderer_func);
+		struct wlr_backend *wl_backend = attempt_wl_backend(display);
 		if (wl_backend) {
 			wlr_multi_backend_add(backend, wl_backend);
 			return backend;
@@ -287,7 +289,7 @@ struct wlr_backend *wlr_backend_autocreate(struct wl_display *display) {
 	const char *x11_display = getenv("DISPLAY");
 	if (x11_display) {
 		struct wlr_backend *x11_backend =
-			attempt_x11_backend(display, x11_display, create_renderer_func);
+			attempt_x11_backend(display, x11_display);
 		if (x11_backend) {
 			wlr_multi_backend_add(backend, x11_backend);
 			return backend;
@@ -295,6 +297,7 @@ struct wlr_backend *wlr_backend_autocreate(struct wl_display *display) {
 	}
 #endif
 
+#if 0
 	// Attempt DRM+libinput
 	multi->session = wlr_session_create(display);
 	if (!multi->session) {
@@ -322,7 +325,7 @@ struct wlr_backend *wlr_backend_autocreate(struct wl_display *display) {
 		wlr_backend_destroy(backend);
 		return NULL;
 	}
+#endif
 
 	return backend;
 }
-#endif

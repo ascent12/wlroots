@@ -18,9 +18,9 @@ backend_files = files(
 	#'libinput/tablet_pad.c',
 	#'libinput/tablet_tool.c',
 	#'libinput/touch.c',
-	#'multi/backend.c',
-	#'session/direct-ipc.c',
-	#'session/session.c',
+	'multi/backend.c',
+	'session/direct-ipc.c',
+	'session/session.c',
 	'wayland/backend.c',
 	'wayland/output.c',
 	'wayland/wl_seat.c',
@@ -38,18 +38,18 @@ backend_deps = [
 	wlr_render,
 ]
 
-#if host_machine.system().startswith('freebsd')
-#	backend_files += files('session/direct-freebsd.c')
-#else
-#	backend_files += files('session/direct.c')
-#endif
+if host_machine.system().startswith('freebsd')
+	backend_files += files('session/direct-freebsd.c')
+else
+	backend_files += files('session/direct.c')
+endif
 
-#if logind.found()
-#	backend_files += files('session/logind.c')
-#	backend_deps += logind
-#endif
+if logind.found()
+	backend_files += files('session/logind.c')
+	backend_deps += logind
+endif
 
-#subdir('x11')
+subdir('x11')
 
 lib_wlr_backend = static_library(
 	'wlr_backend',

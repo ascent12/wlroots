@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <wayland-server.h>
+
 struct wlr_allocator_impl;
 
 struct wlr_allocator {
@@ -15,6 +17,8 @@ struct wlr_image {
 	uint32_t height;
 	uint32_t format;
 	uint64_t modifier;
+
+	struct wl_signal release;
 
 	void *backend_priv;
 };

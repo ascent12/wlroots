@@ -13,6 +13,7 @@
 #include <wlr/backend.h>
 #include <wlr/backend/session.h>
 #include <wlr/backend/wayland.h>
+#include <wlr/backend/x11.h>
 #include <wlr/render/wlr_swapchain.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/interface.h>
@@ -55,8 +56,9 @@ struct sample_keyboard {
 static void draw(struct sample_output *output) {
 	struct sample_state *sample = output->sample;
 	struct wlr_image *img = wlr_swapchain_aquire(output->swapchain);
-	if (!img)
+	if (!img) {
 		return;
+	}
 
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -96,10 +98,6 @@ static void output_release_image(struct wl_listener *listener, void *data) {
 
 	struct wlr_output_event_release_image *event = data;
 	wlr_swapchain_release(output->swapchain, event->image);
-
-	if (!output->output->frame_pending) {
-		draw(output);
-	}
 }
 
 static void output_remove_notify(struct wl_listener *listener, void *data) {
@@ -224,7 +222,7 @@ int main(void) {
 		.display = display
 	};
 
-	struct wlr_backend *backend = wlr_wl_backend_create(display, NULL);
+	struct wlr_backend *backend = wlr_backend_autocreate(display);
 	if (!backend) {
 		return 1;
 	}
@@ -233,8 +231,6 @@ int main(void) {
 	state.new_output.notify = new_output_notify;
 	wl_signal_add(&backend->events.new_input, &state.new_input);
 	state.new_input.notify = new_input_notify;
-
-	wlr_wl_output_create(backend);
 
 	clock_gettime(CLOCK_MONOTONIC, &state.last_frame);
 

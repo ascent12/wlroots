@@ -1,20 +1,27 @@
 #include <stdlib.h>
+
 #include <wlr/config.h>
-#include <wlr/interfaces/wlr_input_device.h>
-#include <wlr/interfaces/wlr_keyboard.h>
-#include <wlr/interfaces/wlr_pointer.h>
-#include <wlr/util/log.h>
-#include <xcb/xcb.h>
+
 #ifdef __linux__
 #include <linux/input-event-codes.h>
 #elif __FreeBSD__
 #include <dev/evdev/input-event-codes.h>
 #endif
+#include <xcb/xcb.h>
 #ifdef WLR_HAS_XCB_XKB
 #include <xcb/xkb.h>
 #endif
+
+#include <wlr/interfaces/wlr_input_device.h>
+#include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/interfaces/wlr_pointer.h>
+#include <wlr/util/log.h>
+
 #include "backend/x11.h"
 #include "util/signal.h"
+
+void handle_xinput_event(struct wlr_x11_backend *x11, xcb_ge_generic_event_t *e) {
+}
 
 static uint32_t xcb_button_to_wl(uint32_t button) {
 	switch (button) {
@@ -65,8 +72,7 @@ void handle_x11_input_event(struct wlr_x11_backend *x11,
 	case XCB_BUTTON_PRESS: {
 		xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
 
-		struct wlr_x11_output *output =
-			get_x11_output_from_window_id(x11, ev->event);
+		struct wlr_x11_output *output = output_from_window(x11, ev->event);
 		if (output == NULL) {
 			break;
 		}
@@ -92,8 +98,7 @@ void handle_x11_input_event(struct wlr_x11_backend *x11,
 	case XCB_BUTTON_RELEASE: {
 		xcb_button_press_event_t *ev = (xcb_button_press_event_t *)event;
 
-		struct wlr_x11_output *output =
-			get_x11_output_from_window_id(x11, ev->event);
+		struct wlr_x11_output *output = output_from_window(x11, ev->event);
 		if (output == NULL) {
 			break;
 		}
@@ -116,15 +121,15 @@ void handle_x11_input_event(struct wlr_x11_backend *x11,
 	case XCB_MOTION_NOTIFY: {
 		xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)event;
 
-		struct wlr_x11_output *output =
-			get_x11_output_from_window_id(x11, ev->event);
+		struct wlr_x11_output *output = output_from_window(x11, ev->event);
 		if (output != NULL) {
 			x11_handle_pointer_position(output, ev->event_x, ev->event_y, ev->time);
 		}
 		return;
 	}
 	default:
-#ifdef WLR_HAS_XCB_XKB
+#if 0
+//#ifdef WLR_HAS_XCB_XKB
 		if (x11->xkb_supported && event->response_type == x11->xkb_base_event) {
 			xcb_xkb_state_notify_event_t *ev =
 				(xcb_xkb_state_notify_event_t *)event;
@@ -166,9 +171,9 @@ void update_x11_pointer_position(struct wlr_x11_output *output,
 	struct wlr_x11_backend *x11 = output->x11;
 
 	xcb_query_pointer_cookie_t cookie =
-		xcb_query_pointer(x11->xcb_conn, output->win);
+		xcb_query_pointer(x11->xcb, output->win);
 	xcb_query_pointer_reply_t *reply =
-		xcb_query_pointer_reply(x11->xcb_conn, cookie, NULL);
+		xcb_query_pointer_reply(x11->xcb, cookie, NULL);
 	if (!reply) {
 		return;
 	}

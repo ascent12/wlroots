@@ -1,7 +1,10 @@
 x11_libs = []
 x11_required = [
 	'xcb',
-	'x11-xcb',
+	'xcb-dri3',
+	'xcb-present',
+	'xcb-xfixes',
+	'xcb-xinput',
 ]
 x11_optional = [
 	'xcb-xkb',
@@ -24,21 +27,10 @@ foreach lib : x11_optional
 	endif
 endforeach
 
-lib_wlr_backend_x11 = static_library(
-	'wlr_backend_x11',
-	files(
-		'backend.c',
-		'input_device.c',
-		'output.c',
-	),
-	include_directories: wlr_inc,
-	dependencies: [
-		wayland_server,
-		pixman,
-		xkbcommon,
-		x11_libs,
-	],
+backend_files += files(
+	'backend.c',
+	'input_device.c',
+	'output.c',
 )
-
-backend_parts += lib_wlr_backend_x11
+backend_deps += x11_libs
 conf_data.set('WLR_HAS_X11_BACKEND', true)

@@ -5,9 +5,18 @@
 #include <sys/types.h>
 
 #include <gbm.h>
+#include <wayland-server.h>
 
 #include <wlr/util/log.h>
 #include "wlr/render/wlr_swapchain.h"
+
+static void wlr_image_release(struct wl_listener *listener, void *data) {
+	struct wlr_swapchain_image *img = wl_container_of(listener, img, release);
+	assert(img->img == data);
+	assert(img->aquired);
+
+	img->aquired = false;
+}
 
 struct wlr_swapchain *wlr_swapchain_create(struct wlr_allocator *alloc,
 		uint32_t width, uint32_t height, uint32_t format,
@@ -31,6 +40,9 @@ struct wlr_swapchain *wlr_swapchain_create(struct wlr_allocator *alloc,
 			wlr_log_errno(WLR_ERROR, "Failed to create image");
 			goto error_images;
 		}
+
+		sc->images[i].release.notify = wlr_image_release;
+		wl_signal_add(&sc->images[i].img->release, &sc->images[i].release);
 	}
 
 	return sc;

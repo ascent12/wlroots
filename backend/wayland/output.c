@@ -29,7 +29,7 @@ static struct wlr_wl_output *get_wl_output_from_output(
 	return (struct wlr_wl_output *)wlr_output;
 }
 
-static struct wl_callback_listener frame_listener;
+struct wl_callback_listener frame_listener;
 
 static void surface_frame_callback(void *data, struct wl_callback *cb,
 		uint32_t time) {
@@ -41,7 +41,7 @@ static void surface_frame_callback(void *data, struct wl_callback *cb,
 	wlr_output_send_frame(&output->wlr_output);
 }
 
-static struct wl_callback_listener frame_listener = {
+struct wl_callback_listener frame_listener = {
 	.done = surface_frame_callback
 };
 

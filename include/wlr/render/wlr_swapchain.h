@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <gbm.h>
+#include <wayland-server.h>
 
 #include <wlr/render/allocator.h>
 
@@ -14,16 +15,20 @@ enum wlr_swapchain_flags {
 	WLR_SWAPCHAIN_USE_SCANOUT = 2,
 };
 
+struct wlr_swapchain_image {
+	struct wlr_image *img;
+	uint64_t seq;
+	bool aquired;
+
+	struct wl_listener release;
+};
+
 struct wlr_swapchain {
 	struct wlr_allocator *alloc;
 	uint32_t flags;
 
 	size_t num_images;
-	struct {
-		struct wlr_image *img;
-		uint64_t seq;
-		bool aquired;
-	} images[3];
+	struct wlr_swapchain_image images[3];
 
 	uint64_t seq;
 };
